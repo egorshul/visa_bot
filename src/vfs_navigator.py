@@ -186,8 +186,26 @@ class VFSNavigator:
         logger.info("Starting login process...")
 
         try:
-            # First pass Cloudflare on main page
-            await self._pass_cloudflare()
+            # Check if already logged in (e.g., when using existing Chrome session)
+            current_url = self.page.url
+            logger.debug(f"Current URL: {current_url}")
+
+            if await self._is_logged_in():
+                logger.info("Already logged in!")
+                self._logged_in = True
+                return True
+
+            # If on dashboard or app page, we're already logged in
+            if "dashboard" in current_url or "application" in current_url:
+                logger.info("Already on dashboard/application page - logged in!")
+                self._logged_in = True
+                return True
+
+            # Skip Cloudflare wait if already on VFS site (connected to existing Chrome)
+            if "vfsglobal.com" not in current_url:
+                await self._pass_cloudflare()
+            else:
+                logger.info("Already on VFS site, skipping Cloudflare check")
 
             # Now navigate to login page
             login_url = self.config.get_login_url()
@@ -311,31 +329,14 @@ class VFSNavigator:
         logger.info("Navigating to appointment page...")
 
         try:
-            # Try to find and click "New Booking" or similar button
-            new_booking_selectors = [
-                "button:has-text('New Booking')",
-                "a:has-text('New Booking')",
-                "button:has-text('Schedule Appointment')",
-                "a:has-text('Schedule Appointment')",
-                ".new-booking-btn",
-                "#newBooking",
-            ]
-
-            for selector in new_booking_selectors:
-                if await self._element_exists(selector):
-                    await self.browser.human_click(selector)
-                    await asyncio.sleep(2)
-                    await self.browser.wait_for_load()
-                    logger.debug(f"Clicked: {selector}")
-                    break
-
-            # Navigate directly to application URL if buttons not found
+            # Always navigate directly to application URL
             app_url = self.config.get_application_url()
-            if not await self._is_on_application_page():
-                logger.debug(f"Direct navigation to: {app_url}")
-                await self.browser.navigate(app_url)
-                await self.browser.wait_for_load()
+            logger.info(f"Going to: {app_url}")
 
+            await self.page.goto(app_url, wait_until="networkidle", timeout=30000)
+            await asyncio.sleep(2)
+
+            logger.info(f"Now on: {self.page.url}")
             self._current_state = PageState.APPLICATION_PAGE
             return True
 
