@@ -367,21 +367,36 @@ class VFSNavigator:
             # Click to open dropdown
             dropdown = self.page.locator(dropdown_selector).first
             if await dropdown.count() == 0:
-                logger.debug(f"Dropdown not found: {dropdown_selector}")
+                print(f"  DEBUG: Dropdown not found: {dropdown_selector}")
                 return False
 
+            print(f"  DEBUG: Clicking dropdown: {dropdown_selector}")
             await dropdown.click()
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(1)
 
             # Wait for options panel to appear
-            await self.page.wait_for_selector("mat-option", timeout=5000)
+            try:
+                await self.page.wait_for_selector("mat-option", timeout=5000)
+            except:
+                print("  DEBUG: No mat-option appeared after click")
+                return False
+
+            # DEBUG: List all available options
+            all_options = await self.page.locator("mat-option").all()
+            print(f"  DEBUG: Available options ({len(all_options)}):")
+            for opt in all_options:
+                try:
+                    opt_text = await opt.text_content()
+                    print(f"    - '{opt_text}'")
+                except:
+                    pass
 
             # Try each option text
             for text in option_texts:
                 option = self.page.locator(f"mat-option:has-text('{text}')").first
                 if await option.count() > 0:
                     await option.click()
-                    logger.debug(f"Selected option: {text}")
+                    print(f"  DEBUG: Selected option: {text}")
                     await asyncio.sleep(0.5)
                     return True
 
@@ -390,14 +405,14 @@ class VFSNavigator:
             if await first_option.count() > 0:
                 text = await first_option.text_content()
                 await first_option.click()
-                logger.debug(f"Selected first available option: {text}")
+                print(f"  DEBUG: Selected first available option: {text}")
                 await asyncio.sleep(0.5)
                 return True
 
             return False
 
         except Exception as e:
-            logger.debug(f"Error selecting mat-option: {e}")
+            print(f"  DEBUG: Error selecting mat-option: {e}")
             return False
 
     async def select_visa_type(self) -> bool:
@@ -586,6 +601,18 @@ class VFSNavigator:
         start_time = datetime.now()
 
         try:
+            # DEBUG: Print current state
+            current_url = self.page.url
+            print(f"\n{'='*50}")
+            print(f"DEBUG: Current URL: {current_url}")
+            print(f"DEBUG: Checking center: {center_name}")
+            print(f"{'='*50}\n")
+
+            # Check if already on application page and logged in
+            if "application" in current_url or "dashboard" in current_url:
+                print("DEBUG: Already on VFS site, assuming logged in")
+                self._logged_in = True
+
             # Ensure we're logged in
             if not self._logged_in:
                 if not await self.login():
@@ -596,23 +623,43 @@ class VFSNavigator:
                     )
 
             # Navigate to appointment page
+            print("DEBUG: Navigating to appointment page...")
             await self.navigate_to_appointment()
 
+            # DEBUG: Print page info after navigation
+            print(f"DEBUG: After navigation URL: {self.page.url}")
+
+            # DEBUG: Find all mat-select elements on page
+            mat_selects = await self.page.locator("mat-select").all()
+            print(f"DEBUG: Found {len(mat_selects)} mat-select elements")
+            for i, ms in enumerate(mat_selects):
+                try:
+                    text = await ms.text_content()
+                    print(f"  mat-select[{i}]: {text[:50] if text else 'empty'}...")
+                except:
+                    pass
+
             # Select visa type
+            print("\nDEBUG: Selecting visa type...")
             await self.select_visa_type()
 
             # Select center
+            print(f"\nDEBUG: Selecting center: {center_name}...")
             await self.select_center(center_name)
 
             # Select applicants count
+            print("\nDEBUG: Selecting applicants count...")
             await self.select_applicants_count()
 
             # Click continue to proceed to calendar
+            print("\nDEBUG: Clicking continue...")
             await self.click_continue()
 
             # Wait for page to load
             await asyncio.sleep(3)
             await self.browser.wait_for_load()
+
+            print(f"\nDEBUG: After continue URL: {self.page.url}")
 
             # Check for CAPTCHA
             if self.captcha_solver:
