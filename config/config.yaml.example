@@ -40,8 +40,9 @@ account:
 # Checking schedule
 schedule:
   # Interval between checks in seconds
-  min_interval: 10  # 10 seconds
-  max_interval: 20  # 20 seconds
+  # IMPORTANT: Too frequent checks (< 30s) may cause VFS to block your account!
+  min_interval: 30  # 30 seconds minimum
+  max_interval: 60  # 60 seconds maximum
 
   # Use random intervals between min and max
   randomize: true

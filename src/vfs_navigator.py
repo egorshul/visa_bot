@@ -5,6 +5,7 @@ Handles login, navigation, and slot availability checking.
 """
 
 import asyncio
+import random
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -515,9 +516,12 @@ class VFSNavigator:
             print(f"  DEBUG: mat-select[{index}] current value: '{current_text[:50] if current_text else 'empty'}'")
             print(f"  DEBUG: mat-select[{index}] selecting: '{option_text}'")
 
+            # ANTI-DETECTION: Random delay before clicking (like human thinking)
+            await asyncio.sleep(random.uniform(0.5, 1.5))
+
             # Click to open dropdown
             await dropdown.click()
-            await asyncio.sleep(1)
+            await asyncio.sleep(random.uniform(0.8, 1.5))  # Random delay
 
             # Wait for options panel to appear
             try:
@@ -526,26 +530,24 @@ class VFSNavigator:
                 print(f"  DEBUG: mat-select[{index}] No mat-option appeared after click")
                 return False
 
-            # List all available options
+            # List all available options (but don't print all to reduce log noise)
             all_options = await self.page.locator("mat-option").all()
-            print(f"  DEBUG: mat-select[{index}] available options ({len(all_options)}):")
-            for opt in all_options:
-                try:
-                    opt_text = await opt.text_content()
-                    print(f"    - '{opt_text.strip() if opt_text else ''}'")
-                except:
-                    pass
+            print(f"  DEBUG: mat-select[{index}] has {len(all_options)} options")
+
+            # ANTI-DETECTION: Small random delay before selecting (human reads options)
+            await asyncio.sleep(random.uniform(0.3, 0.8))
 
             # Find and click the option containing our text
             option = self.page.locator(f"mat-option:has-text('{option_text}')").first
             if await option.count() > 0:
                 await option.click()
-                print(f"  DEBUG: mat-select[{index}] SELECTED: {option_text}")
+                print(f"  DEBUG: mat-select[{index}] -> {option_text}")
 
                 # Wait for loading after selection
                 if wait_for_load:
-                    print(f"  DEBUG: Waiting for page to load after selection...")
-                    await asyncio.sleep(2)
+                    # ANTI-DETECTION: Random delay (2-4 seconds)
+                    delay = random.uniform(2, 4)
+                    await asyncio.sleep(delay)
                     # Wait for any spinner to disappear
                     try:
                         spinner = self.page.locator("mat-spinner, .loading, .spinner")
@@ -807,9 +809,13 @@ class VFSNavigator:
             logger.exception("Failed to click continue", e)
             return False
 
+    # Track check count for periodic refresh
+    _check_count = 0
+
     async def check_all_combinations(self) -> CheckResult:
         """
-        Check available slots for ALL combinations of centers and visa types.
+        Check available slots for combinations of centers and visa types.
+        Uses human-like behavior to avoid detection.
 
         Combinations to check:
         - Moscow + Short Stay + All kind of other short stay visas
@@ -819,20 +825,38 @@ class VFSNavigator:
         Returns:
             CheckResult with slot information (if found)
         """
-        logger.info("Starting check of all combinations...")
+        VFSNavigator._check_count += 1
+        logger.info(f"Starting check #{VFSNavigator._check_count}...")
         start_time = datetime.now()
 
         # Define all combinations to try
         # Format: (center_name, center_text, subcategory_text)
-        combinations = [
+        all_combinations = [
             ("Moscow", "Moscow", "All kind of other short stay visas"),
             ("Moscow PRIME", "Moscow", "PRIME TIME"),
             ("Nizhniy Novgorod", "Nizhniy Novgorod", "All kind of other short stay visas"),
         ]
 
+        # ANTI-DETECTION: Randomize which combinations to check
+        # Sometimes check all, sometimes just 1-2 to appear more human
+        if random.random() < 0.3:  # 30% chance to check only 1-2 combinations
+            num_to_check = random.randint(1, 2)
+            combinations = random.sample(all_combinations, num_to_check)
+            print(f"DEBUG: Randomly checking {num_to_check} combination(s) this cycle")
+        else:
+            combinations = all_combinations.copy()
+            random.shuffle(combinations)  # Randomize order
+            print(f"DEBUG: Checking all {len(combinations)} combinations (shuffled)")
+
         all_slots = []
 
         try:
+            # ANTI-DETECTION: Periodic page refresh (every 5-10 checks)
+            if VFSNavigator._check_count % random.randint(5, 10) == 0:
+                print("DEBUG: Performing periodic page refresh...")
+                await self.page.reload(wait_until="domcontentloaded")
+                await asyncio.sleep(random.uniform(3, 5))
+
             # Check for Cloudflare CAPTCHA first
             if await self._check_cloudflare_captcha():
                 captcha_passed = await self.wait_for_cloudflare_to_pass()
@@ -846,8 +870,8 @@ class VFSNavigator:
             # Check if on application page
             current_url = self.page.url
             print(f"\n{'='*60}")
-            print(f"DEBUG: Current URL: {current_url}")
-            print(f"DEBUG: Starting slot check for ALL combinations")
+            print(f"CHECK #{VFSNavigator._check_count}")
+            print(f"URL: {current_url}")
             print(f"{'='*60}\n")
 
             if "application" not in current_url:
@@ -860,10 +884,11 @@ class VFSNavigator:
                 )
 
             # Check if logged in (wait a bit for page to load)
+            await asyncio.sleep(random.uniform(1, 2))  # Random initial delay
             mat_selects = await self.page.locator("mat-select").all()
             if len(mat_selects) < 1:
                 # Maybe page is still loading or Cloudflare appeared
-                await asyncio.sleep(2)
+                await asyncio.sleep(random.uniform(2, 4))
                 if await self._check_cloudflare_captcha():
                     captcha_passed = await self.wait_for_cloudflare_to_pass()
                     if not captcha_passed:
@@ -882,13 +907,13 @@ class VFSNavigator:
                     needs_retry=False,
                 )
 
-            print(f"DEBUG: Found {len(mat_selects)} mat-select dropdowns - page looks good!")
+            print(f"DEBUG: Found {len(mat_selects)} dropdowns")
 
             # Try each combination
-            for combo_name, center_text, subcategory_text in combinations:
+            for i, (combo_name, center_text, subcategory_text) in enumerate(combinations):
                 # Check for Cloudflare between combinations
                 if await self._check_cloudflare_captcha():
-                    print("\n⚠️  Cloudflare appeared between checks!")
+                    print("\n⚠️  Cloudflare appeared!")
                     captcha_passed = await self.wait_for_cloudflare_to_pass()
                     if not captcha_passed:
                         return CheckResult(
@@ -898,9 +923,7 @@ class VFSNavigator:
                         )
 
                 print(f"\n{'-'*50}")
-                print(f"CHECKING: {combo_name}")
-                print(f"  Center: {center_text}")
-                print(f"  Subcategory: {subcategory_text}")
+                print(f"[{i+1}/{len(combinations)}] {combo_name}")
                 print(f"{'-'*50}")
 
                 result = await self._check_single_combination(
@@ -911,15 +934,17 @@ class VFSNavigator:
                     print(f"\n🎉 SLOTS FOUND for {combo_name}!")
                     all_slots.extend(result.slots)
                 elif result.state == PageState.NO_SLOTS:
-                    print(f"  No slots for {combo_name}")
+                    print(f"  ❌ No slots")
                 elif result.state == PageState.ERROR:
-                    print(f"  Error checking {combo_name}: {result.error_message}")
+                    print(f"  ⚠️ Error: {result.error_message}")
                 elif result.state == PageState.CAPTCHA:
-                    # Cloudflare appeared during check
                     return result
 
-                # Small delay between combinations
-                await asyncio.sleep(2)
+                # ANTI-DETECTION: Random delay between combinations (3-8 seconds)
+                if i < len(combinations) - 1:  # Don't delay after last one
+                    delay = random.uniform(3, 8)
+                    print(f"  Waiting {delay:.1f}s before next check...")
+                    await asyncio.sleep(delay)
 
             duration = (datetime.now() - start_time).total_seconds()
             logger.check_completed(duration)
