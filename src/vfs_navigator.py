@@ -347,6 +347,103 @@ class VFSNavigator:
             re.search(self.URL_PATTERNS["appointment"], url)
         )
 
+    async def _check_cloudflare_captcha(self) -> bool:
+        """
+        Check if Cloudflare CAPTCHA/challenge is present.
+
+        Returns:
+            True if Cloudflare challenge is detected
+        """
+        try:
+            # Check page title
+            title = await self.page.title()
+            if title and "just a moment" in title.lower():
+                return True
+
+            # Check for Cloudflare elements
+            cloudflare_indicators = [
+                "#challenge-running",
+                "#challenge-stage",
+                ".cf-turnstile",
+                "iframe[src*='challenges.cloudflare.com']",
+                "#cf-challenge-running",
+                "[data-ray]",  # Cloudflare ray ID
+            ]
+
+            for selector in cloudflare_indicators:
+                try:
+                    element = self.page.locator(selector)
+                    if await element.count() > 0:
+                        return True
+                except:
+                    pass
+
+            # Check page content for Cloudflare text
+            page_content = await self.page.content()
+            cloudflare_texts = [
+                "checking your browser",
+                "please wait while we verify",
+                "this process is automatic",
+                "ray id:",
+                "cloudflare",
+                "please complete the security check",
+            ]
+
+            page_lower = page_content.lower()
+            for text in cloudflare_texts:
+                if text in page_lower and "vfsglobal" not in page_lower[:500]:
+                    # Only trigger if we're not on the VFS page
+                    return True
+
+            return False
+
+        except Exception as e:
+            print(f"  DEBUG: Error checking Cloudflare: {e}")
+            return False
+
+    async def wait_for_cloudflare_to_pass(self, timeout_seconds: int = 120) -> bool:
+        """
+        Wait for Cloudflare challenge to be solved by user.
+
+        Args:
+            timeout_seconds: Maximum time to wait for user to solve CAPTCHA
+
+        Returns:
+            True if challenge passed, False if timeout
+        """
+        print("\n" + "=" * 60)
+        print("⚠️  CLOUDFLARE CAPTCHA DETECTED!")
+        print("=" * 60)
+        print("Please solve the CAPTCHA in the browser window.")
+        print(f"Waiting up to {timeout_seconds} seconds...")
+        print("=" * 60 + "\n")
+
+        logger.warning("Cloudflare CAPTCHA detected - waiting for user to solve")
+
+        start_time = datetime.now()
+        check_interval = 2  # Check every 2 seconds
+
+        while (datetime.now() - start_time).total_seconds() < timeout_seconds:
+            # Check if Cloudflare challenge is still present
+            if not await self._check_cloudflare_captcha():
+                # Challenge passed!
+                print("\n✅ Cloudflare CAPTCHA solved! Continuing...")
+                logger.info("Cloudflare CAPTCHA solved")
+                await asyncio.sleep(2)  # Small delay after solving
+                return True
+
+            # Still waiting
+            elapsed = int((datetime.now() - start_time).total_seconds())
+            if elapsed % 10 == 0:  # Print status every 10 seconds
+                print(f"  Waiting for CAPTCHA... ({elapsed}s / {timeout_seconds}s)")
+
+            await asyncio.sleep(check_interval)
+
+        # Timeout
+        print("\n❌ Timeout waiting for Cloudflare CAPTCHA!")
+        logger.error("Timeout waiting for Cloudflare CAPTCHA")
+        return False
+
     async def _select_dropdown_by_index(self, index: int, option_text: str, wait_for_load: bool = True) -> bool:
         """
         Select an option from mat-select dropdown by its index on the page.
@@ -360,6 +457,13 @@ class VFSNavigator:
             True if option selected successfully
         """
         try:
+            # Check for Cloudflare first
+            if await self._check_cloudflare_captcha():
+                print("  DEBUG: Cloudflare detected during dropdown selection!")
+                captcha_passed = await self.wait_for_cloudflare_to_pass()
+                if not captcha_passed:
+                    return False
+
             # Wait for dropdowns to be present
             print(f"  DEBUG: Looking for mat-select[{index}]...")
 
@@ -368,6 +472,12 @@ class VFSNavigator:
                 mat_selects = await self.page.locator("mat-select").all()
                 if len(mat_selects) > index:
                     break
+                # Check for Cloudflare while waiting
+                if await self._check_cloudflare_captcha():
+                    print("  DEBUG: Cloudflare appeared while waiting for dropdown!")
+                    captcha_passed = await self.wait_for_cloudflare_to_pass()
+                    if not captcha_passed:
+                        return False
                 print(f"  DEBUG: Found {len(mat_selects)} dropdowns, waiting for index {index}...")
                 await asyncio.sleep(0.5)
 
@@ -703,6 +813,16 @@ class VFSNavigator:
         all_slots = []
 
         try:
+            # Check for Cloudflare CAPTCHA first
+            if await self._check_cloudflare_captcha():
+                captcha_passed = await self.wait_for_cloudflare_to_pass()
+                if not captcha_passed:
+                    return CheckResult(
+                        state=PageState.CAPTCHA,
+                        error_message="Cloudflare CAPTCHA timeout",
+                        needs_retry=True,
+                    )
+
             # Check if on application page
             current_url = self.page.url
             print(f"\n{'='*60}")
@@ -719,10 +839,23 @@ class VFSNavigator:
                     needs_retry=False,
                 )
 
-            # Check if logged in
+            # Check if logged in (wait a bit for page to load)
             mat_selects = await self.page.locator("mat-select").all()
-            if len(mat_selects) < 3:
-                print(f"ERROR: Expected 3+ dropdowns, found {len(mat_selects)}. You might be logged out.")
+            if len(mat_selects) < 1:
+                # Maybe page is still loading or Cloudflare appeared
+                await asyncio.sleep(2)
+                if await self._check_cloudflare_captcha():
+                    captcha_passed = await self.wait_for_cloudflare_to_pass()
+                    if not captcha_passed:
+                        return CheckResult(
+                            state=PageState.CAPTCHA,
+                            error_message="Cloudflare CAPTCHA timeout",
+                            needs_retry=True,
+                        )
+                mat_selects = await self.page.locator("mat-select").all()
+
+            if len(mat_selects) < 1:
+                print(f"ERROR: No dropdowns found. You might be logged out.")
                 return CheckResult(
                     state=PageState.ERROR,
                     error_message="Not logged in or page not loaded. Please login/refresh.",
@@ -733,6 +866,17 @@ class VFSNavigator:
 
             # Try each combination
             for combo_name, center_text, subcategory_text in combinations:
+                # Check for Cloudflare between combinations
+                if await self._check_cloudflare_captcha():
+                    print("\n⚠️  Cloudflare appeared between checks!")
+                    captcha_passed = await self.wait_for_cloudflare_to_pass()
+                    if not captcha_passed:
+                        return CheckResult(
+                            state=PageState.CAPTCHA,
+                            error_message="Cloudflare CAPTCHA timeout",
+                            needs_retry=True,
+                        )
+
                 print(f"\n{'-'*50}")
                 print(f"CHECKING: {combo_name}")
                 print(f"  Center: {center_text}")
@@ -750,6 +894,9 @@ class VFSNavigator:
                     print(f"  No slots for {combo_name}")
                 elif result.state == PageState.ERROR:
                     print(f"  Error checking {combo_name}: {result.error_message}")
+                elif result.state == PageState.CAPTCHA:
+                    # Cloudflare appeared during check
+                    return result
 
                 # Small delay between combinations
                 await asyncio.sleep(2)
