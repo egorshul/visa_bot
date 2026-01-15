@@ -67,45 +67,45 @@ class VFSNavigator:
 
     # Common selectors for VFS website
     SELECTORS = {
-        # Login
-        "email_input": "input[type='email'], input[name='email'], #email",
-        "password_input": "input[type='password'], input[name='password'], #password",
-        "login_button": "button[type='submit'], .btn-login, #btnSubmit",
-        "login_form": "form.login-form, #loginForm, form[action*='login']",
+        # Login - VFS uses Angular Material
+        "email_input": "#email",
+        "password_input": "#password",
+        "login_button": "button[type='submit']",
+        "login_form": "form",
 
         # Navigation
         "new_booking_btn": "button:has-text('New Booking'), a:has-text('New Booking'), .new-booking",
         "schedule_appointment": "a:has-text('Schedule Appointment'), button:has-text('Schedule')",
 
         # Visa type selection
-        "visa_category": "select#VisaCategory, select[name='VisaCategory'], .visa-category select",
-        "visa_subcategory": "select#VisaSubCategory, select[name='VisaSubCategory'], .visa-subcategory select",
-        "short_stay_option": "option:has-text('Short Stay'), option[value*='short']",
+        "visa_category": "mat-select[formcontrolname='VisaCategory'], #mat-select-0",
+        "visa_subcategory": "mat-select[formcontrolname='VisaSubCategory'], #mat-select-2",
+        "short_stay_option": "mat-option:has-text('Short Stay')",
 
         # Center selection
-        "center_dropdown": "select#VisaCentre, select[name='VisaCentre'], .visa-centre select",
-        "center_option": "option:has-text('{center}')",
+        "center_dropdown": "mat-select[formcontrolname='VisaCentre'], mat-select:has-text('Centre')",
+        "center_option": "mat-option:has-text('{center}')",
 
         # Applicants
-        "applicants_dropdown": "select#NumberOfApplicants, select[name='applicants']",
+        "applicants_dropdown": "mat-select[formcontrolname='NumberOfApplicants']",
 
         # Continue/Submit buttons
-        "continue_button": "button:has-text('Continue'), input[value='Continue'], .btn-continue",
-        "submit_button": "button[type='submit'], input[type='submit']",
+        "continue_button": "button:has-text('Continue'), button:has-text('Submit')",
+        "submit_button": "button[type='submit']",
 
         # Calendar and slots
-        "calendar_container": ".calendar-container, .datepicker, #calendar",
-        "available_date": ".day:not(.disabled), .available-date, td.active:not(.disabled)",
+        "calendar_container": ".calendar-container, .datepicker, #calendar, mat-calendar",
+        "available_date": ".mat-calendar-body-cell:not(.mat-calendar-body-disabled)",
         "time_slot": ".time-slot:not(.disabled), .slot-available, .appointment-slot",
         "slot_time_text": ".slot-time, .time-text",
 
         # Messages
-        "no_slots_message": ".no-slots, .no-appointment, :has-text('No appointment')",
-        "queue_message": ".queue-message, :has-text('queue'), :has-text('Queue')",
-        "error_message": ".error-message, .alert-danger, .error",
+        "no_slots_message": ":has-text('No appointment'), :has-text('no slots'), :has-text('not available')",
+        "queue_message": ":has-text('queue'), :has-text('Queue')",
+        "error_message": ".error-message, .alert-danger, .error, mat-error",
 
         # General
-        "loading_spinner": ".loading, .spinner, .loader",
+        "loading_spinner": ".loading, .spinner, .loader, mat-spinner",
         "modal_close": ".modal-close, .close-modal, button[aria-label='Close']",
     }
 
