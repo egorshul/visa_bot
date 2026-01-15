@@ -144,14 +144,10 @@ class BrowserManager:
                 self._context = await self._browser.new_context()
                 logger.info("Created new browser context")
 
-            # Get existing page or create new one
-            pages = self._context.pages
-            if pages:
-                self._page = pages[0]
-                logger.info("Using existing browser tab")
-            else:
-                self._page = await self._context.new_page()
-                logger.info("Created new browser tab")
+            # ALWAYS create a new page/tab for the bot
+            # Don't use existing pages to avoid closing user's tabs
+            self._page = await self._context.new_page()
+            logger.info("Created new browser tab for bot")
 
             logger.info("Browser ready (connected to existing Chrome)")
             return self._page
