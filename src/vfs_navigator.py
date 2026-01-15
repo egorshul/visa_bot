@@ -321,27 +321,22 @@ class VFSNavigator:
 
     async def navigate_to_appointment(self) -> bool:
         """
-        Navigate to appointment booking page.
+        Check if already on appointment page. DON'T navigate - use current page.
 
         Returns:
-            True if navigation successful
+            True if on appointment page
         """
-        logger.info("Navigating to appointment page...")
+        current_url = self.page.url
+        print(f"DEBUG: Current page URL: {current_url}")
 
-        try:
-            # Always navigate directly to application URL
-            app_url = self.config.get_application_url()
-            logger.info(f"Going to: {app_url}")
-
-            await self.page.goto(app_url, wait_until="networkidle", timeout=30000)
-            await asyncio.sleep(2)
-
-            logger.info(f"Now on: {self.page.url}")
+        # Check if we're on the right page
+        if "application" in current_url:
+            print("DEBUG: Already on application page - good!")
             self._current_state = PageState.APPLICATION_PAGE
             return True
-
-        except Exception as e:
-            logger.exception("Failed to navigate to appointment page", e)
+        else:
+            print(f"ERROR: NOT on application page!")
+            print(f"Please navigate manually to: {self.config.get_application_url()}")
             return False
 
     async def _is_on_application_page(self) -> bool:
@@ -608,26 +603,29 @@ class VFSNavigator:
             print(f"DEBUG: Checking center: {center_name}")
             print(f"{'='*50}\n")
 
-            # Check if already on application page and logged in
-            if "application" in current_url or "dashboard" in current_url:
-                print("DEBUG: Already on VFS site, assuming logged in")
-                self._logged_in = True
+            # Check if on application page
+            if "application" not in current_url:
+                print("ERROR: Not on application page!")
+                print(f"Please open: {self.config.get_application_url()}")
+                print("Then restart the bot.")
+                return CheckResult(
+                    state=PageState.ERROR,
+                    error_message="Not on application page. Please navigate manually.",
+                    needs_retry=False,
+                )
 
-            # Ensure we're logged in
-            if not self._logged_in:
-                if not await self.login():
-                    return CheckResult(
-                        state=PageState.ERROR,
-                        error_message="Login failed",
-                        needs_retry=True,
-                    )
+            # Check if logged in (simple check - if we see mat-select, we're probably logged in)
+            mat_selects = await self.page.locator("mat-select").all()
+            if len(mat_selects) == 0:
+                print("ERROR: No form elements found. You might be logged out.")
+                print("Please login manually and refresh the page.")
+                return CheckResult(
+                    state=PageState.ERROR,
+                    error_message="Not logged in. Please login manually.",
+                    needs_retry=False,
+                )
 
-            # Navigate to appointment page
-            print("DEBUG: Navigating to appointment page...")
-            await self.navigate_to_appointment()
-
-            # DEBUG: Print page info after navigation
-            print(f"DEBUG: After navigation URL: {self.page.url}")
+            print(f"DEBUG: Page looks good, found {len(mat_selects)} dropdowns")
 
             # DEBUG: Find all mat-select elements on page
             mat_selects = await self.page.locator("mat-select").all()

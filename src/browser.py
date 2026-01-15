@@ -135,19 +135,22 @@ class BrowserManager:
             self._browser = await self._playwright.chromium.connect_over_cdp(cdp_url)
             logger.info("Connected to Chrome successfully")
 
-            # Get existing context or create new one
+            # Get existing context
             contexts = self._browser.contexts
             if contexts:
                 self._context = contexts[0]
                 logger.info("Using existing browser context")
             else:
-                self._context = await self._browser.new_context()
-                logger.info("Created new browser context")
+                raise Exception("No browser context found. Please open a tab first.")
 
-            # ALWAYS create a new page/tab for the bot
-            # Don't use existing pages to avoid closing user's tabs
-            self._page = await self._context.new_page()
-            logger.info("Created new browser tab for bot")
+            # Use EXISTING page - don't create new one!
+            pages = self._context.pages
+            if pages:
+                # Use the last opened page (most likely the one user is working with)
+                self._page = pages[-1]
+                logger.info(f"Using existing tab: {self._page.url}")
+            else:
+                raise Exception("No tabs found. Please open VFS page first.")
 
             logger.info("Browser ready (connected to existing Chrome)")
             return self._page
