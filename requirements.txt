@@ -26,5 +26,5 @@ schedule>=1.2.1
 # Logging
 colorlog>=6.8.0
 
-# For human-like delays
-numpy>=1.26.0
+# For human-like delays (Python 3.9 compatible)
+numpy>=1.24.0,<2.0.0
