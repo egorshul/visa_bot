@@ -1,0 +1,68 @@
+# VFS Visa Slot Checker Bot - Docker Compose Configuration
+#
+# Usage:
+#   docker-compose up -d        # Start in background
+#   docker-compose logs -f      # View logs
+#   docker-compose down         # Stop
+#   docker-compose restart      # Restart
+
+version: '3.8'
+
+services:
+  visa-bot:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: vfs-visa-bot
+    restart: unless-stopped
+
+    # Environment variables (can override config)
+    environment:
+      - TZ=Europe/Moscow
+      - VFS_EMAIL=${VFS_EMAIL}
+      - VFS_PASSWORD=${VFS_PASSWORD}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+      - CAPTCHA_API_KEY=${CAPTCHA_API_KEY:-}
+      - DEBUG=${DEBUG:-0}
+
+    # Mount configuration and logs
+    volumes:
+      - ../config:/app/config:ro
+      - ../logs:/app/logs
+      - ../data:/app/data
+      # For X11 display (if running headful on Linux)
+      # - /tmp/.X11-unix:/tmp/.X11-unix:rw
+
+    # For headful browser (uncomment if needed)
+    # environment:
+    #   - DISPLAY=${DISPLAY}
+
+    # Security options
+    security_opt:
+      - no-new-privileges:true
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+    # Logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    # Network (optional - if you have other services)
+    networks:
+      - visa-bot-network
+
+networks:
+  visa-bot-network:
+    driver: bridge

@@ -1,0 +1,174 @@
+# VFS Global Visa Slot Checker Configuration
+# Copy this file to config.yaml and fill in your values
+
+# Application mode
+mode: "prod"  # "debug" or "prod"
+
+# VFS Global settings
+vfs:
+  # Base URL for VFS Global
+  base_url: "https://visa.vfsglobal.com"
+
+  # Country where you're applying FROM
+  country_code: "rus"
+
+  # Language
+  language: "en"
+
+  # Country you're applying TO (visa destination)
+  destination_country: "fra"
+
+  # Visa type
+  visa_type: "short_stay"
+
+  # Sub-category
+  visa_subcategory: "all_other_short_stay"
+
+  # Visa centers to monitor (check all listed)
+  centers:
+    - "Nizhny Novgorod"
+    - "Moscow"
+
+  # Number of applicants
+  applicants_count: 1
+
+# Account credentials (for VFS login)
+account:
+  email: "${VFS_EMAIL}"  # Use env variable
+  password: "${VFS_PASSWORD}"  # Use env variable
+
+# Checking schedule
+schedule:
+  # Interval between checks in seconds
+  min_interval: 60  # 1 minute
+  max_interval: 300  # 5 minutes
+
+  # Use random intervals between min and max
+  randomize: true
+
+  # Active hours (24h format, leave empty for 24/7)
+  active_hours:
+    start: "06:00"
+    end: "23:59"
+
+# Browser settings
+browser:
+  # Run in headful mode (visible browser)
+  headless: false
+
+  # Slow down actions (ms) - helps avoid detection
+  slow_mo: 50
+
+  # Viewport size
+  viewport:
+    width: 1920
+    height: 1080
+
+  # Browser type: chromium, firefox, webkit
+  type: "chromium"
+
+  # Use proxy (optional)
+  proxy:
+    enabled: false
+    server: ""
+    username: ""
+    password: ""
+
+# Anti-bot settings
+antibot:
+  # Enable stealth mode
+  stealth_mode: true
+
+  # Random mouse movements
+  mouse_movements: true
+
+  # Random scrolling
+  random_scroll: true
+
+  # Human-like typing delays
+  typing_delay:
+    min: 50
+    max: 150
+
+  # Delays between actions (ms)
+  action_delay:
+    min: 500
+    max: 2000
+
+  # User agent rotation
+  rotate_user_agent: true
+
+# CAPTCHA settings
+captcha:
+  # Auto-solve using external service
+  auto_solve: false
+
+  # Service to use: "2captcha" or "anticaptcha"
+  service: "2captcha"
+
+  # API key (use env variable)
+  api_key: "${CAPTCHA_API_KEY}"
+
+  # Timeout for solving (seconds)
+  timeout: 120
+
+  # Notify user if CAPTCHA appears and can't be solved
+  notify_on_captcha: true
+
+# Telegram notifications
+telegram:
+  enabled: true
+  bot_token: "${TELEGRAM_BOT_TOKEN}"
+  chat_id: "${TELEGRAM_CHAT_ID}"
+
+  # Send notifications on these events
+  notify_on:
+    slot_available: true
+    error: true
+    captcha: true
+    daily_status: true  # Daily "still running" message
+
+# Email notifications (optional)
+email:
+  enabled: false
+  smtp_server: "smtp.gmail.com"
+  smtp_port: 587
+  use_tls: true
+  sender_email: "${EMAIL_SENDER}"
+  sender_password: "${EMAIL_PASSWORD}"
+  recipient_email: "${EMAIL_RECIPIENT}"
+
+# Logging
+logging:
+  # Log level: DEBUG, INFO, WARNING, ERROR
+  level: "INFO"
+
+  # Log to file
+  file_logging: true
+  log_file: "logs/visa_bot.log"
+
+  # Max log file size (MB)
+  max_size: 10
+
+  # Number of backup files to keep
+  backup_count: 5
+
+  # Log to console
+  console_logging: true
+
+# Retry and error handling
+retry:
+  # Max retries on error
+  max_retries: 3
+
+  # Delay between retries (seconds)
+  retry_delay: 30
+
+  # Restart bot on critical error
+  auto_restart: true
+
+  # Max consecutive errors before long pause
+  max_consecutive_errors: 5
+
+  # Long pause duration (minutes)
+  error_pause_duration: 15

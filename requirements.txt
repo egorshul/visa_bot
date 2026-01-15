@@ -1,0 +1,30 @@
+# Browser automation
+playwright>=1.40.0
+playwright-stealth>=1.0.6
+
+# HTTP and async
+aiohttp>=3.9.0
+httpx>=0.25.0
+
+# Configuration
+pyyaml>=6.0.1
+python-dotenv>=1.0.0
+
+# Telegram
+python-telegram-bot>=20.7
+
+# Email
+aiosmtplib>=3.0.0
+
+# CAPTCHA solving services
+python-anticaptcha>=1.0.0
+
+# Utilities
+fake-useragent>=1.4.0
+schedule>=1.2.1
+
+# Logging
+colorlog>=6.8.0
+
+# For human-like delays
+numpy>=1.26.0
