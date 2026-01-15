@@ -143,6 +143,39 @@ class VFSNavigator:
         """Get current page instance."""
         return self.browser.page
 
+    async def _pass_cloudflare(self) -> bool:
+        """
+        Navigate to main page and wait for Cloudflare challenge to pass.
+
+        Returns:
+            True if passed successfully
+        """
+        logger.info("Passing Cloudflare protection...")
+
+        # Go to main page first
+        base_url = f"{self.config.vfs_base_url}/{self.config.country_code}/{self.config.language}/{self.config.destination_country}"
+        await self.browser.navigate(base_url, wait_until="domcontentloaded")
+
+        # Wait for Cloudflare challenge (up to 30 seconds)
+        for i in range(15):
+            await asyncio.sleep(2)
+
+            # Check if still on challenge page
+            page_content = await self.page.content()
+            if "challenge" in page_content.lower() or "checking your browser" in page_content.lower():
+                logger.debug(f"Waiting for Cloudflare... ({i+1}/15)")
+                continue
+
+            # Check if page loaded normally
+            if await self._element_exists("body"):
+                title = await self.page.title()
+                if title and "just a moment" not in title.lower():
+                    logger.info("Cloudflare passed successfully")
+                    return True
+
+        logger.warning("Cloudflare challenge may not have completed")
+        return True  # Continue anyway
+
     async def login(self) -> bool:
         """
         Log in to VFS Global account.
@@ -153,11 +186,16 @@ class VFSNavigator:
         logger.info("Starting login process...")
 
         try:
-            # Navigate to login page
-            login_url = self.config.get_login_url()
-            await self.browser.navigate(login_url)
+            # First pass Cloudflare on main page
+            await self._pass_cloudflare()
 
-            # Wait for page to load
+            # Now navigate to login page
+            login_url = self.config.get_login_url()
+            logger.debug(f"Navigating to: {login_url}")
+            await self.browser.navigate(login_url, wait_until="domcontentloaded")
+
+            # Wait for page to fully load
+            await asyncio.sleep(3)
             await self.browser.wait_for_load()
 
             # Check for CAPTCHA
