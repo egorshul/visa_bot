@@ -351,6 +351,54 @@ class VFSNavigator:
             re.search(self.URL_PATTERNS["appointment"], url)
         )
 
+    async def _click_mat_select_option(self, dropdown_selector: str, option_texts: list) -> bool:
+        """
+        Click on Angular Material mat-select and choose an option.
+
+        Args:
+            dropdown_selector: Selector for the mat-select element
+            option_texts: List of possible option texts to try
+
+        Returns:
+            True if option selected successfully
+        """
+        try:
+            # Click to open dropdown
+            dropdown = self.page.locator(dropdown_selector).first
+            if await dropdown.count() == 0:
+                logger.debug(f"Dropdown not found: {dropdown_selector}")
+                return False
+
+            await dropdown.click()
+            await asyncio.sleep(0.5)
+
+            # Wait for options panel to appear
+            await self.page.wait_for_selector("mat-option", timeout=5000)
+
+            # Try each option text
+            for text in option_texts:
+                option = self.page.locator(f"mat-option:has-text('{text}')").first
+                if await option.count() > 0:
+                    await option.click()
+                    logger.debug(f"Selected option: {text}")
+                    await asyncio.sleep(0.5)
+                    return True
+
+            # If no exact match, click first available option
+            first_option = self.page.locator("mat-option").first
+            if await first_option.count() > 0:
+                text = await first_option.text_content()
+                await first_option.click()
+                logger.debug(f"Selected first available option: {text}")
+                await asyncio.sleep(0.5)
+                return True
+
+            return False
+
+        except Exception as e:
+            logger.debug(f"Error selecting mat-option: {e}")
+            return False
+
     async def select_visa_type(self) -> bool:
         """
         Select visa type (Short Stay).
@@ -361,35 +409,50 @@ class VFSNavigator:
         logger.info(f"Selecting visa type: {self.config.visa_type}")
 
         try:
-            # Wait for visa category dropdown
-            await self._wait_for_element(self.SELECTORS["visa_category"], timeout=10000)
+            # Wait for page to be ready
+            await asyncio.sleep(2)
 
-            # Select visa category (Short Stay)
-            category_dropdown = self.page.locator(self.SELECTORS["visa_category"])
-            if await category_dropdown.count() > 0:
-                await category_dropdown.select_option(label="Short Stay")
-                await self.browser.human_behavior.random_delay(0.5, 1)
+            # Take screenshot to see current state
+            logger.debug(f"Current URL: {self.page.url}")
 
-            # Select subcategory if present
-            subcategory_dropdown = self.page.locator(self.SELECTORS["visa_subcategory"])
-            if await subcategory_dropdown.count() > 0:
-                await asyncio.sleep(1)  # Wait for subcategory to load
+            # Select visa category - try mat-select first, then regular select
+            category_selectors = [
+                "mat-select[formcontrolname='missionCategory']",
+                "mat-select:has-text('Category')",
+                "#mat-select-0",
+                "mat-select",
+            ]
 
-                # Try to select "All other short stay visas" or similar
-                subcategory_options = [
-                    "All other Short Stay visas",
-                    "All kind of other short stay visas",
-                    "Other Short Stay",
-                    "Tourism",
-                ]
+            category_options = ["Short Stay", "SHORT STAY", "Short stay"]
 
-                for option in subcategory_options:
-                    try:
-                        await subcategory_dropdown.select_option(label=option)
-                        logger.debug(f"Selected subcategory: {option}")
+            for selector in category_selectors:
+                if await self._element_exists(selector):
+                    if await self._click_mat_select_option(selector, category_options):
+                        logger.info("Selected visa category: Short Stay")
                         break
-                    except Exception:
-                        continue
+
+            await asyncio.sleep(1)
+
+            # Select subcategory
+            subcategory_selectors = [
+                "mat-select[formcontrolname='missionCode']",
+                "mat-select:has-text('Sub-Category')",
+                "#mat-select-2",
+            ]
+
+            subcategory_options = [
+                "All other Short Stay visas",
+                "All kind of other short stay visas",
+                "Other Short Stay",
+                "Tourism",
+                "Other",
+            ]
+
+            for selector in subcategory_selectors:
+                if await self._element_exists(selector):
+                    if await self._click_mat_select_option(selector, subcategory_options):
+                        logger.info("Selected visa subcategory")
+                        break
 
             await self.browser.human_behavior.random_delay(0.5, 1)
             self._current_state = PageState.VISA_TYPE_SELECTION
@@ -412,38 +475,31 @@ class VFSNavigator:
         logger.info(f"Selecting visa center: {center_name}")
 
         try:
-            # Wait for center dropdown
-            await self._wait_for_element(self.SELECTORS["center_dropdown"], timeout=10000)
+            await asyncio.sleep(1)
 
-            # Select center
-            center_dropdown = self.page.locator(self.SELECTORS["center_dropdown"])
-            if await center_dropdown.count() > 0:
-                # Try different name variations
-                center_variations = [
-                    center_name,
-                    center_name.upper(),
-                    center_name.lower(),
-                    center_name.title(),
-                ]
+            # Center dropdown selectors for mat-select
+            center_selectors = [
+                "mat-select[formcontrolname='vacCode']",
+                "mat-select:has-text('Centre')",
+                "mat-select:has-text('Visa Application')",
+                "#mat-select-4",
+            ]
 
-                for variation in center_variations:
-                    try:
-                        await center_dropdown.select_option(label=variation)
-                        logger.debug(f"Selected center: {variation}")
+            # Different variations of center name
+            center_options = [
+                center_name,
+                center_name.upper(),
+                center_name.lower(),
+                center_name.replace(" ", ""),
+                f"Russia-{center_name}",
+                f"RUS-{center_name}",
+            ]
+
+            for selector in center_selectors:
+                if await self._element_exists(selector):
+                    if await self._click_mat_select_option(selector, center_options):
+                        logger.info(f"Selected visa center: {center_name}")
                         break
-                    except Exception:
-                        # Try partial match
-                        try:
-                            options = await center_dropdown.locator("option").all()
-                            for option in options:
-                                text = await option.text_content()
-                                if text and center_name.lower() in text.lower():
-                                    value = await option.get_attribute("value")
-                                    await center_dropdown.select_option(value=value)
-                                    logger.debug(f"Selected center by value: {text}")
-                                    break
-                        except Exception:
-                            continue
 
             await self.browser.human_behavior.random_delay(0.5, 1)
             self._current_state = PageState.CENTER_SELECTION
@@ -461,14 +517,23 @@ class VFSNavigator:
             True if selection successful
         """
         count = self.config.applicants_count
+        logger.info(f"Selecting applicants count: {count}")
 
         try:
-            applicants_dropdown = self.page.locator(self.SELECTORS["applicants_dropdown"])
-            if await applicants_dropdown.count() > 0:
-                await applicants_dropdown.select_option(value=str(count))
-                logger.debug(f"Selected {count} applicant(s)")
-                await self.browser.human_behavior.random_delay(0.3, 0.5)
+            # Applicants dropdown selectors
+            applicants_selectors = [
+                "mat-select[formcontrolname='noOfApplicants']",
+                "mat-select:has-text('Applicant')",
+                "#mat-select-6",
+            ]
 
+            for selector in applicants_selectors:
+                if await self._element_exists(selector):
+                    if await self._click_mat_select_option(selector, [str(count), f"{count} Applicant"]):
+                        logger.info(f"Selected {count} applicant(s)")
+                        break
+
+            await self.browser.human_behavior.random_delay(0.3, 0.5)
             return True
 
         except Exception as e:
