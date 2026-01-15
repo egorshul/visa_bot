@@ -226,9 +226,34 @@ class VFSNavigator:
 
             await self.browser.human_behavior.random_delay(0.5, 1)
 
-            # Click login button
-            logger.debug("Clicking login button...")
-            await self.browser.human_click(self.SELECTORS["login_button"])
+            # Click login button - try multiple selectors
+            logger.debug("Looking for login button...")
+            login_btn_selectors = [
+                "button:has-text('Sign In')",
+                "button:has-text('Login')",
+                "button:has-text('SIGN IN')",
+                "button[type='submit']",
+                ".mat-button:has-text('Sign')",
+                "button.mat-raised-button",
+            ]
+
+            clicked = False
+            for selector in login_btn_selectors:
+                try:
+                    if await self._element_exists(selector):
+                        logger.debug(f"Found login button: {selector}")
+                        await self.browser.human_click(selector)
+                        clicked = True
+                        break
+                except Exception:
+                    continue
+
+            if not clicked:
+                # Take screenshot for debugging
+                logger.error("Login button not found! Taking screenshot...")
+                await self.take_screenshot("login_error")
+                logger.error(f"Current URL: {self.page.url}")
+                raise Exception("Login button not found")
 
             # Wait for navigation
             await asyncio.sleep(3)
