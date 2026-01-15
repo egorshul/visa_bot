@@ -347,6 +347,81 @@ class VFSNavigator:
             re.search(self.URL_PATTERNS["appointment"], url)
         )
 
+    async def _click_mat_select_by_id(self, mat_select_value_id: str, option_text: str) -> bool:
+        """
+        Click on Angular Material mat-select by its mat-select-value ID and choose an option.
+
+        Args:
+            mat_select_value_id: ID like "mat-select-value-0", "mat-select-value-1", etc.
+            option_text: Text of the option to select
+
+        Returns:
+            True if option selected successfully
+        """
+        try:
+            # Find the mat-select element that contains this span
+            # The structure is: mat-select > ... > span#mat-select-value-X
+            dropdown = self.page.locator(f"mat-select:has(#{mat_select_value_id})").first
+
+            if await dropdown.count() == 0:
+                # Try alternative: find by the mat-select itself
+                # mat-select-value-0 means first mat-select, value-1 = second, etc.
+                mat_selects = await self.page.locator("mat-select").all()
+                idx = int(mat_select_value_id.split("-")[-1])
+                if idx < len(mat_selects):
+                    dropdown = mat_selects[idx]
+                else:
+                    print(f"  DEBUG: mat-select not found for {mat_select_value_id}")
+                    return False
+
+            # Get current value
+            current_text = await dropdown.text_content()
+            print(f"  DEBUG: [{mat_select_value_id}] Current value: '{current_text[:50] if current_text else 'empty'}'")
+            print(f"  DEBUG: [{mat_select_value_id}] Clicking to select: '{option_text}'")
+
+            await dropdown.click()
+            await asyncio.sleep(1)
+
+            # Wait for options panel to appear
+            try:
+                await self.page.wait_for_selector("mat-option", timeout=5000)
+            except:
+                print(f"  DEBUG: [{mat_select_value_id}] No mat-option appeared after click")
+                return False
+
+            # DEBUG: List all available options
+            all_options = await self.page.locator("mat-option").all()
+            print(f"  DEBUG: [{mat_select_value_id}] Available options ({len(all_options)}):")
+            for opt in all_options:
+                try:
+                    opt_text = await opt.text_content()
+                    print(f"    - '{opt_text.strip() if opt_text else ''}'")
+                except:
+                    pass
+
+            # Find and click the option containing our text
+            option = self.page.locator(f"mat-option:has-text('{option_text}')").first
+            if await option.count() > 0:
+                await option.click()
+                print(f"  DEBUG: [{mat_select_value_id}] Selected: {option_text}")
+                await asyncio.sleep(1)
+                return True
+
+            print(f"  DEBUG: [{mat_select_value_id}] Option '{option_text}' not found!")
+
+            # Close dropdown by pressing Escape
+            await self.page.keyboard.press("Escape")
+            return False
+
+        except Exception as e:
+            print(f"  DEBUG: [{mat_select_value_id}] Error: {e}")
+            # Try to close any open dropdown
+            try:
+                await self.page.keyboard.press("Escape")
+            except:
+                pass
+            return False
+
     async def _click_mat_select_option(self, dropdown_selector: str, option_texts: list) -> bool:
         """
         Click on Angular Material mat-select and choose an option.
@@ -582,108 +657,258 @@ class VFSNavigator:
             logger.exception("Failed to click continue", e)
             return False
 
-    async def check_slots_for_center(self, center_name: str) -> CheckResult:
+    async def check_all_combinations(self) -> CheckResult:
         """
-        Check available slots for a specific center.
+        Check available slots for ALL combinations of centers and visa types.
 
-        Args:
-            center_name: Name of the visa center
+        Combinations to check:
+        - Moscow + Short Stay + All kind of other short stay visas
+        - Moscow + Short Stay + PRIME TIME (65 euros)
+        - Nizhniy Novgorod + Short Stay + All kind of other short stay visas
 
         Returns:
-            CheckResult with slot information
+            CheckResult with slot information (if found)
         """
-        logger.check_started(center_name)
+        logger.info("Starting check of all combinations...")
         start_time = datetime.now()
 
-        try:
-            # DEBUG: Print current state
-            current_url = self.page.url
-            print(f"\n{'='*50}")
-            print(f"DEBUG: Current URL: {current_url}")
-            print(f"DEBUG: Checking center: {center_name}")
-            print(f"{'='*50}\n")
+        # Define all combinations to try
+        # Format: (center_name, center_text, subcategory_text)
+        combinations = [
+            ("Moscow", "Moscow", "All kind of other short stay visas"),
+            ("Moscow PRIME", "Moscow", "PRIME TIME"),
+            ("Nizhniy Novgorod", "Nizhniy Novgorod", "All kind of other short stay visas"),
+        ]
 
+        all_slots = []
+
+        try:
             # Check if on application page
+            current_url = self.page.url
+            print(f"\n{'='*60}")
+            print(f"DEBUG: Current URL: {current_url}")
+            print(f"DEBUG: Starting slot check for ALL combinations")
+            print(f"{'='*60}\n")
+
             if "application" not in current_url:
                 print("ERROR: Not on application page!")
                 print(f"Please open: {self.config.get_application_url()}")
-                print("Then restart the bot.")
                 return CheckResult(
                     state=PageState.ERROR,
                     error_message="Not on application page. Please navigate manually.",
                     needs_retry=False,
                 )
 
-            # Check if logged in (simple check - if we see mat-select, we're probably logged in)
+            # Check if logged in
             mat_selects = await self.page.locator("mat-select").all()
-            if len(mat_selects) == 0:
-                print("ERROR: No form elements found. You might be logged out.")
-                print("Please login manually and refresh the page.")
+            if len(mat_selects) < 3:
+                print(f"ERROR: Expected 3+ dropdowns, found {len(mat_selects)}. You might be logged out.")
                 return CheckResult(
                     state=PageState.ERROR,
-                    error_message="Not logged in. Please login manually.",
+                    error_message="Not logged in or page not loaded. Please login/refresh.",
                     needs_retry=False,
                 )
 
-            print(f"DEBUG: Page looks good, found {len(mat_selects)} dropdowns")
+            print(f"DEBUG: Found {len(mat_selects)} mat-select dropdowns - page looks good!")
 
-            # DEBUG: Find all mat-select elements on page
-            mat_selects = await self.page.locator("mat-select").all()
-            print(f"DEBUG: Found {len(mat_selects)} mat-select elements")
-            for i, ms in enumerate(mat_selects):
-                try:
-                    text = await ms.text_content()
-                    print(f"  mat-select[{i}]: {text[:50] if text else 'empty'}...")
-                except:
-                    pass
+            # Try each combination
+            for combo_name, center_text, subcategory_text in combinations:
+                print(f"\n{'-'*50}")
+                print(f"CHECKING: {combo_name}")
+                print(f"  Center: {center_text}")
+                print(f"  Subcategory: {subcategory_text}")
+                print(f"{'-'*50}")
 
-            # Select visa type
-            print("\nDEBUG: Selecting visa type...")
-            await self.select_visa_type()
+                result = await self._check_single_combination(
+                    combo_name, center_text, subcategory_text
+                )
 
-            # Select center
-            print(f"\nDEBUG: Selecting center: {center_name}...")
-            await self.select_center(center_name)
+                if result.state == PageState.SLOT_SELECTION and result.slots:
+                    print(f"\n🎉 SLOTS FOUND for {combo_name}!")
+                    all_slots.extend(result.slots)
+                elif result.state == PageState.NO_SLOTS:
+                    print(f"  No slots for {combo_name}")
+                elif result.state == PageState.ERROR:
+                    print(f"  Error checking {combo_name}: {result.error_message}")
 
-            # Select applicants count
-            print("\nDEBUG: Selecting applicants count...")
-            await self.select_applicants_count()
-
-            # Click continue to proceed to calendar
-            print("\nDEBUG: Clicking continue...")
-            await self.click_continue()
-
-            # Wait for page to load
-            await asyncio.sleep(3)
-            await self.browser.wait_for_load()
-
-            print(f"\nDEBUG: After continue URL: {self.page.url}")
-
-            # Check for CAPTCHA
-            if self.captcha_solver:
-                captcha_solved = await self.captcha_solver.check_and_solve(self.page)
-                if not captcha_solved:
-                    return CheckResult(
-                        state=PageState.CAPTCHA,
-                        error_message="CAPTCHA appeared",
-                        needs_retry=True,
-                    )
-
-            # Check page state and available slots
-            result = await self._check_current_page_for_slots(center_name)
+                # Small delay between combinations
+                await asyncio.sleep(2)
 
             duration = (datetime.now() - start_time).total_seconds()
             logger.check_completed(duration)
 
-            return result
+            if all_slots:
+                return CheckResult(
+                    state=PageState.SLOT_SELECTION,
+                    slots=all_slots,
+                )
+            else:
+                return CheckResult(state=PageState.NO_SLOTS)
 
         except Exception as e:
-            logger.exception(f"Error checking slots for {center_name}", e)
+            logger.exception("Error checking combinations", e)
             return CheckResult(
                 state=PageState.ERROR,
                 error_message=str(e),
                 needs_retry=True,
             )
+
+    async def _check_single_combination(
+        self, combo_name: str, center_text: str, subcategory_text: str
+    ) -> CheckResult:
+        """
+        Check slots for a single combination of center and subcategory.
+
+        Uses mat-select IDs:
+        - mat-select-value-0: Center (Moscow / Nizhniy Novgorod)
+        - mat-select-value-1: Category (Short Stay)
+        - mat-select-value-2: Subcategory (All kind of... / PRIME TIME)
+
+        Args:
+            combo_name: Display name for this combination
+            center_text: Text to match in center dropdown
+            subcategory_text: Text to match in subcategory dropdown
+
+        Returns:
+            CheckResult with slot information
+        """
+        try:
+            # Step 1: Select Center (mat-select-value-0)
+            print(f"\n  Step 1: Selecting center...")
+            center_selected = await self._click_mat_select_by_id(
+                "mat-select-value-0", center_text
+            )
+            if not center_selected:
+                return CheckResult(
+                    state=PageState.ERROR,
+                    error_message=f"Could not select center: {center_text}",
+                )
+
+            await asyncio.sleep(1)
+
+            # Step 2: Select Category - Short Stay (mat-select-value-1)
+            print(f"\n  Step 2: Selecting category (Short Stay)...")
+            category_selected = await self._click_mat_select_by_id(
+                "mat-select-value-1", "Short Stay"
+            )
+            if not category_selected:
+                return CheckResult(
+                    state=PageState.ERROR,
+                    error_message="Could not select category: Short Stay",
+                )
+
+            await asyncio.sleep(1)
+
+            # Step 3: Select Subcategory (mat-select-value-2)
+            print(f"\n  Step 3: Selecting subcategory ({subcategory_text})...")
+            subcategory_selected = await self._click_mat_select_by_id(
+                "mat-select-value-2", subcategory_text
+            )
+            if not subcategory_selected:
+                return CheckResult(
+                    state=PageState.ERROR,
+                    error_message=f"Could not select subcategory: {subcategory_text}",
+                )
+
+            await asyncio.sleep(1)
+
+            # Step 4: Check result - look for "no slots" message OR active Continue button
+            print(f"\n  Step 4: Checking for available slots...")
+            result = await self._check_slot_availability(combo_name)
+
+            return result
+
+        except Exception as e:
+            print(f"  ERROR: {e}")
+            return CheckResult(
+                state=PageState.ERROR,
+                error_message=str(e),
+                needs_retry=True,
+            )
+
+    async def _check_slot_availability(self, combo_name: str) -> CheckResult:
+        """
+        Check if slots are available after selecting form options.
+
+        Looks for:
+        1. "no appointment slots are currently available" message -> NO_SLOTS
+        2. Active (not disabled) Continue button -> SLOTS AVAILABLE!
+
+        Args:
+            combo_name: Name of the combination being checked
+
+        Returns:
+            CheckResult
+        """
+        await asyncio.sleep(1)
+
+        # Check for "no slots" message
+        no_slots_texts = [
+            "no appointment slots are currently available",
+            "no slots available",
+            "no appointment",
+            "currently not available",
+            "fully booked",
+        ]
+
+        page_text = await self.page.content()
+        page_text_lower = page_text.lower()
+
+        for text in no_slots_texts:
+            if text.lower() in page_text_lower:
+                print(f"  Result: NO SLOTS (found '{text}')")
+                logger.no_slots(combo_name)
+                return CheckResult(state=PageState.NO_SLOTS)
+
+        # Check for Continue button
+        continue_button = self.page.locator("button:has-text('Continue')").first
+        if await continue_button.count() > 0:
+            # Check if button is enabled (not disabled)
+            is_disabled = await continue_button.get_attribute("disabled")
+            is_aria_disabled = await continue_button.get_attribute("aria-disabled")
+            button_class = await continue_button.get_attribute("class") or ""
+
+            print(f"  DEBUG: Continue button found")
+            print(f"    disabled attr: {is_disabled}")
+            print(f"    aria-disabled: {is_aria_disabled}")
+            print(f"    classes: {button_class[:50]}...")
+
+            # Button is active if not disabled
+            if is_disabled is None and is_aria_disabled != "true" and "disabled" not in button_class:
+                print(f"\n  🎉 SLOTS AVAILABLE! Continue button is active!")
+                logger.slot_found(combo_name, "Available", "Check website")
+
+                slot = SlotInfo(
+                    center=combo_name,
+                    date="Available - check website",
+                    time_slots=["Continue button is active"],
+                    booking_url=self.page.url,
+                )
+                return CheckResult(
+                    state=PageState.SLOT_SELECTION,
+                    slots=[slot],
+                )
+            else:
+                print(f"  Result: Continue button exists but is DISABLED")
+                return CheckResult(state=PageState.NO_SLOTS)
+
+        # No clear indication - assume no slots
+        print(f"  Result: No Continue button found, assuming no slots")
+        return CheckResult(state=PageState.NO_SLOTS)
+
+    async def check_slots_for_center(self, center_name: str) -> CheckResult:
+        """
+        Check available slots for a specific center.
+        NOTE: This method now delegates to check_all_combinations for comprehensive checking.
+
+        Args:
+            center_name: Name of the visa center (used for logging)
+
+        Returns:
+            CheckResult with slot information
+        """
+        # Use the new comprehensive check
+        return await self.check_all_combinations()
 
     async def _check_current_page_for_slots(self, center_name: str) -> CheckResult:
         """

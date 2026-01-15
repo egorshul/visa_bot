@@ -155,16 +155,9 @@ class VisaSlotBot:
                     await asyncio.sleep(60)
                     continue
 
-                # Check all configured centers
-                for center in self.config.centers:
-                    if self._shutdown_requested:
-                        break
-
-                    await self._check_center(center)
-
-                    # Small delay between centers
-                    if len(self.config.centers) > 1:
-                        await asyncio.sleep(random.uniform(2, 5))
+                # Check all combinations (Moscow, Moscow PRIME, Nizhniy Novgorod)
+                # This is now handled in a single call to check_all_combinations
+                await self._check_all_combinations()
 
                 # Update last check time
                 self._last_check_time = datetime.now()
@@ -188,6 +181,49 @@ class VisaSlotBot:
                 break
             except Exception as e:
                 await self._handle_error(e)
+
+    async def _check_all_combinations(self) -> None:
+        """
+        Check all combinations of centers and visa types.
+        Calls navigator.check_all_combinations() which handles:
+        - Moscow + All kind of other short stay visas
+        - Moscow + PRIME TIME
+        - Nizhniy Novgorod + All kind of other short stay visas
+        """
+        try:
+            result = await self._navigator.check_all_combinations()
+
+            if result.state == PageState.SLOT_SELECTION and result.slots:
+                # Slots found!
+                await self._handle_slots_found(result.slots)
+                self._consecutive_errors = 0
+
+            elif result.state == PageState.NO_SLOTS:
+                logger.info("No slots found for any combination")
+                self._consecutive_errors = 0
+
+            elif result.state == PageState.CAPTCHA:
+                logger.warning("CAPTCHA detected")
+                if self._telegram:
+                    await self._telegram.notify_captcha(self._browser.page.url)
+                # Wait before retry
+                await asyncio.sleep(60)
+
+            elif result.state == PageState.ERROR:
+                raise Exception(result.error_message)
+
+            elif result.state == PageState.QUEUE:
+                logger.info("Queue detected")
+                self._consecutive_errors = 0
+
+        except Exception as e:
+            logger.exception("Error checking combinations", e)
+            self._consecutive_errors += 1
+            self._errors_count += 1
+
+            # Check if too many consecutive errors
+            if self._consecutive_errors >= self.config.max_consecutive_errors:
+                await self._handle_too_many_errors()
 
     async def _check_center(self, center: str) -> None:
         """
