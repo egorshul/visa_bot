@@ -40,8 +40,8 @@ account:
 # Checking schedule
 schedule:
   # Interval between checks in seconds
-  min_interval: 60  # 1 minute
-  max_interval: 300  # 5 minutes
+  min_interval: 10  # 10 seconds
+  max_interval: 20  # 20 seconds
 
   # Use random intervals between min and max
   randomize: true

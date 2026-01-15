@@ -403,10 +403,10 @@ class VFSNavigator:
 
     async def wait_for_cloudflare_to_pass(self, timeout_seconds: int = 120) -> bool:
         """
-        Wait for Cloudflare challenge to be solved by user.
+        Wait for Cloudflare challenge to be solved (automatically or manually).
 
         Args:
-            timeout_seconds: Maximum time to wait for user to solve CAPTCHA
+            timeout_seconds: Maximum time to wait for CAPTCHA to be solved
 
         Returns:
             True if challenge passed, False if timeout
@@ -414,11 +414,31 @@ class VFSNavigator:
         print("\n" + "=" * 60)
         print("⚠️  CLOUDFLARE CAPTCHA DETECTED!")
         print("=" * 60)
+
+        # Try automatic solving if captcha_solver is configured
+        if self.captcha_solver and self.captcha_solver.auto_solve and self.captcha_solver.api_key:
+            print("Attempting AUTOMATIC solving via 2Captcha/Anti-Captcha...")
+            print("=" * 60 + "\n")
+
+            try:
+                solved = await self.captcha_solver.check_and_solve(self.page)
+                if solved:
+                    print("\n✅ Cloudflare CAPTCHA solved automatically!")
+                    logger.info("Cloudflare CAPTCHA solved via auto-solver")
+                    await asyncio.sleep(2)
+                    return True
+                else:
+                    print("  Auto-solve returned False, falling back to manual...")
+            except Exception as e:
+                logger.error(f"Auto-solve failed: {e}")
+                print(f"  Auto-solve failed: {e}")
+
+        # Fallback to manual solving
         print("Please solve the CAPTCHA in the browser window.")
         print(f"Waiting up to {timeout_seconds} seconds...")
         print("=" * 60 + "\n")
 
-        logger.warning("Cloudflare CAPTCHA detected - waiting for user to solve")
+        logger.warning("Cloudflare CAPTCHA - waiting for manual solve")
 
         start_time = datetime.now()
         check_interval = 2  # Check every 2 seconds
