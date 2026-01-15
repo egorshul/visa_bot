@@ -347,38 +347,45 @@ class VFSNavigator:
             re.search(self.URL_PATTERNS["appointment"], url)
         )
 
-    async def _click_mat_select_by_id(self, mat_select_value_id: str, option_text: str) -> bool:
+    async def _select_dropdown_by_index(self, index: int, option_text: str, wait_for_load: bool = True) -> bool:
         """
-        Click on Angular Material mat-select by its mat-select-value ID and choose an option.
+        Select an option from mat-select dropdown by its index on the page.
 
         Args:
-            mat_select_value_id: ID like "mat-select-value-0", "mat-select-value-1", etc.
+            index: Index of the mat-select (0 = first, 1 = second, etc.)
             option_text: Text of the option to select
+            wait_for_load: Whether to wait for loading after selection
 
         Returns:
             True if option selected successfully
         """
         try:
-            # Find the mat-select element that contains this span
-            # The structure is: mat-select > ... > span#mat-select-value-X
-            dropdown = self.page.locator(f"mat-select:has(#{mat_select_value_id})").first
+            # Wait for dropdowns to be present
+            print(f"  DEBUG: Looking for mat-select[{index}]...")
 
-            if await dropdown.count() == 0:
-                # Try alternative: find by the mat-select itself
-                # mat-select-value-0 means first mat-select, value-1 = second, etc.
+            # Wait up to 10 seconds for enough dropdowns to appear
+            for attempt in range(20):
                 mat_selects = await self.page.locator("mat-select").all()
-                idx = int(mat_select_value_id.split("-")[-1])
-                if idx < len(mat_selects):
-                    dropdown = mat_selects[idx]
-                else:
-                    print(f"  DEBUG: mat-select not found for {mat_select_value_id}")
-                    return False
+                if len(mat_selects) > index:
+                    break
+                print(f"  DEBUG: Found {len(mat_selects)} dropdowns, waiting for index {index}...")
+                await asyncio.sleep(0.5)
+
+            mat_selects = await self.page.locator("mat-select").all()
+            print(f"  DEBUG: Total mat-selects on page: {len(mat_selects)}")
+
+            if index >= len(mat_selects):
+                print(f"  DEBUG: mat-select[{index}] not found! Only {len(mat_selects)} dropdowns exist.")
+                return False
+
+            dropdown = mat_selects[index]
 
             # Get current value
             current_text = await dropdown.text_content()
-            print(f"  DEBUG: [{mat_select_value_id}] Current value: '{current_text[:50] if current_text else 'empty'}'")
-            print(f"  DEBUG: [{mat_select_value_id}] Clicking to select: '{option_text}'")
+            print(f"  DEBUG: mat-select[{index}] current value: '{current_text[:50] if current_text else 'empty'}'")
+            print(f"  DEBUG: mat-select[{index}] selecting: '{option_text}'")
 
+            # Click to open dropdown
             await dropdown.click()
             await asyncio.sleep(1)
 
@@ -386,12 +393,12 @@ class VFSNavigator:
             try:
                 await self.page.wait_for_selector("mat-option", timeout=5000)
             except:
-                print(f"  DEBUG: [{mat_select_value_id}] No mat-option appeared after click")
+                print(f"  DEBUG: mat-select[{index}] No mat-option appeared after click")
                 return False
 
-            # DEBUG: List all available options
+            # List all available options
             all_options = await self.page.locator("mat-option").all()
-            print(f"  DEBUG: [{mat_select_value_id}] Available options ({len(all_options)}):")
+            print(f"  DEBUG: mat-select[{index}] available options ({len(all_options)}):")
             for opt in all_options:
                 try:
                     opt_text = await opt.text_content()
@@ -403,18 +410,31 @@ class VFSNavigator:
             option = self.page.locator(f"mat-option:has-text('{option_text}')").first
             if await option.count() > 0:
                 await option.click()
-                print(f"  DEBUG: [{mat_select_value_id}] Selected: {option_text}")
-                await asyncio.sleep(1)
+                print(f"  DEBUG: mat-select[{index}] SELECTED: {option_text}")
+
+                # Wait for loading after selection
+                if wait_for_load:
+                    print(f"  DEBUG: Waiting for page to load after selection...")
+                    await asyncio.sleep(2)
+                    # Wait for any spinner to disappear
+                    try:
+                        spinner = self.page.locator("mat-spinner, .loading, .spinner")
+                        if await spinner.count() > 0:
+                            await spinner.wait_for(state="hidden", timeout=10000)
+                    except:
+                        pass
+
                 return True
 
-            print(f"  DEBUG: [{mat_select_value_id}] Option '{option_text}' not found!")
+            print(f"  DEBUG: mat-select[{index}] Option '{option_text}' not found!")
 
             # Close dropdown by pressing Escape
             await self.page.keyboard.press("Escape")
+            await asyncio.sleep(0.5)
             return False
 
         except Exception as e:
-            print(f"  DEBUG: [{mat_select_value_id}] Error: {e}")
+            print(f"  DEBUG: mat-select[{index}] Error: {e}")
             # Try to close any open dropdown
             try:
                 await self.page.keyboard.press("Escape")
@@ -759,10 +779,10 @@ class VFSNavigator:
         """
         Check slots for a single combination of center and subcategory.
 
-        Uses mat-select IDs:
-        - mat-select-value-0: Center (Moscow / Nizhniy Novgorod)
-        - mat-select-value-1: Category (Short Stay)
-        - mat-select-value-2: Subcategory (All kind of... / PRIME TIME)
+        Dropdowns appear in order (each one loads after previous selection):
+        - Dropdown 0: Center (Moscow / Nizhniy Novgorod)
+        - Dropdown 1: Category (Short Stay) - appears after center selected
+        - Dropdown 2: Subcategory (All kind of... / PRIME TIME) - appears after category selected
 
         Args:
             combo_name: Display name for this combination
@@ -773,44 +793,34 @@ class VFSNavigator:
             CheckResult with slot information
         """
         try:
-            # Step 1: Select Center (mat-select-value-0)
-            print(f"\n  Step 1: Selecting center...")
-            center_selected = await self._click_mat_select_by_id(
-                "mat-select-value-0", center_text
-            )
+            # Step 1: Select Center (first dropdown, index 0)
+            print(f"\n  Step 1: Selecting center '{center_text}'...")
+            center_selected = await self._select_dropdown_by_index(0, center_text)
             if not center_selected:
                 return CheckResult(
                     state=PageState.ERROR,
                     error_message=f"Could not select center: {center_text}",
                 )
 
-            await asyncio.sleep(1)
-
-            # Step 2: Select Category - Short Stay (mat-select-value-1)
-            print(f"\n  Step 2: Selecting category (Short Stay)...")
-            category_selected = await self._click_mat_select_by_id(
-                "mat-select-value-1", "Short Stay"
-            )
+            # Step 2: Select Category - Short Stay (second dropdown, index 1)
+            # This dropdown appears after center is selected
+            print(f"\n  Step 2: Selecting category 'Short Stay'...")
+            category_selected = await self._select_dropdown_by_index(1, "Short Stay")
             if not category_selected:
                 return CheckResult(
                     state=PageState.ERROR,
                     error_message="Could not select category: Short Stay",
                 )
 
-            await asyncio.sleep(1)
-
-            # Step 3: Select Subcategory (mat-select-value-2)
-            print(f"\n  Step 3: Selecting subcategory ({subcategory_text})...")
-            subcategory_selected = await self._click_mat_select_by_id(
-                "mat-select-value-2", subcategory_text
-            )
+            # Step 3: Select Subcategory (third dropdown, index 2)
+            # This dropdown appears after category is selected
+            print(f"\n  Step 3: Selecting subcategory '{subcategory_text}'...")
+            subcategory_selected = await self._select_dropdown_by_index(2, subcategory_text)
             if not subcategory_selected:
                 return CheckResult(
                     state=PageState.ERROR,
                     error_message=f"Could not select subcategory: {subcategory_text}",
                 )
-
-            await asyncio.sleep(1)
 
             # Step 4: Check result - look for "no slots" message OR active Continue button
             print(f"\n  Step 4: Checking for available slots...")
