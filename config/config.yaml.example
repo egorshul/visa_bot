@@ -53,7 +53,13 @@ schedule:
 
 # Browser settings
 browser:
-  # Run in headful mode (visible browser)
+  # RECOMMENDED: Connect to your existing Chrome browser
+  # This bypasses VFS anti-bot detection!
+  # Start Chrome with: /Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome --remote-debugging-port=9222
+  # Then set cdp_url below:
+  cdp_url: ""  # e.g., "http://localhost:9222"
+
+  # Run in headful mode (visible browser) - only used if cdp_url is empty
   headless: false
 
   # Slow down actions (ms) - helps avoid detection

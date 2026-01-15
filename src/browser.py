@@ -62,6 +62,11 @@ class BrowserManager:
 
         self._playwright = await async_playwright().start()
 
+        # Check if we should connect to existing Chrome (recommended for VFS)
+        cdp_url = self.config.get("browser.cdp_url", "")
+        if cdp_url:
+            return await self._connect_to_chrome(cdp_url)
+
         # Select browser type
         browser_type = self.config.browser_type
         if browser_type == "chromium":
@@ -110,6 +115,51 @@ class BrowserManager:
 
         logger.info("Browser ready")
         return self._page
+
+    async def _connect_to_chrome(self, cdp_url: str) -> "Page":
+        """
+        Connect to existing Chrome browser via CDP.
+
+        This is the recommended way to bypass VFS anti-bot detection.
+        Start Chrome with: google-chrome --remote-debugging-port=9222
+
+        Args:
+            cdp_url: CDP endpoint URL (e.g., http://localhost:9222)
+
+        Returns:
+            Page instance from connected browser
+        """
+        logger.info(f"Connecting to Chrome via CDP: {cdp_url}")
+
+        try:
+            self._browser = await self._playwright.chromium.connect_over_cdp(cdp_url)
+            logger.info("Connected to Chrome successfully")
+
+            # Get existing context or create new one
+            contexts = self._browser.contexts
+            if contexts:
+                self._context = contexts[0]
+                logger.info("Using existing browser context")
+            else:
+                self._context = await self._browser.new_context()
+                logger.info("Created new browser context")
+
+            # Get existing page or create new one
+            pages = self._context.pages
+            if pages:
+                self._page = pages[0]
+                logger.info("Using existing browser tab")
+            else:
+                self._page = await self._context.new_page()
+                logger.info("Created new browser tab")
+
+            logger.info("Browser ready (connected to existing Chrome)")
+            return self._page
+
+        except Exception as e:
+            logger.error(f"Failed to connect to Chrome: {e}")
+            logger.error("Make sure Chrome is running with: --remote-debugging-port=9222")
+            raise
 
     async def _create_context(self) -> None:
         """Create browser context with stealth options."""
