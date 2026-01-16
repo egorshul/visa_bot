@@ -478,13 +478,6 @@ class VFSNavigator:
             True if option selected successfully
         """
         try:
-            # Check for Cloudflare first
-            if await self._check_cloudflare_captcha():
-                print("  DEBUG: Cloudflare detected during dropdown selection!")
-                captcha_passed = await self.wait_for_cloudflare_to_pass()
-                if not captcha_passed:
-                    return False
-
             # Wait for dropdowns to be present
             print(f"  DEBUG: Looking for mat-select[{index}]...")
 
@@ -493,12 +486,6 @@ class VFSNavigator:
                 mat_selects = await self.page.locator("mat-select").all()
                 if len(mat_selects) > index:
                     break
-                # Check for Cloudflare while waiting
-                if await self._check_cloudflare_captcha():
-                    print("  DEBUG: Cloudflare appeared while waiting for dropdown!")
-                    captcha_passed = await self.wait_for_cloudflare_to_pass()
-                    if not captcha_passed:
-                        return False
                 print(f"  DEBUG: Found {len(mat_selects)} dropdowns, waiting for index {index}...")
                 await asyncio.sleep(0.5)
 
@@ -857,16 +844,6 @@ class VFSNavigator:
                 await self.page.reload(wait_until="domcontentloaded")
                 await asyncio.sleep(random.uniform(3, 5))
 
-            # Check for Cloudflare CAPTCHA first
-            if await self._check_cloudflare_captcha():
-                captcha_passed = await self.wait_for_cloudflare_to_pass()
-                if not captcha_passed:
-                    return CheckResult(
-                        state=PageState.CAPTCHA,
-                        error_message="Cloudflare CAPTCHA timeout",
-                        needs_retry=True,
-                    )
-
             # Check if on application page
             current_url = self.page.url
             print(f"\n{'='*60}")
@@ -887,16 +864,8 @@ class VFSNavigator:
             await asyncio.sleep(random.uniform(1, 2))  # Random initial delay
             mat_selects = await self.page.locator("mat-select").all()
             if len(mat_selects) < 1:
-                # Maybe page is still loading or Cloudflare appeared
+                # Maybe page is still loading
                 await asyncio.sleep(random.uniform(2, 4))
-                if await self._check_cloudflare_captcha():
-                    captcha_passed = await self.wait_for_cloudflare_to_pass()
-                    if not captcha_passed:
-                        return CheckResult(
-                            state=PageState.CAPTCHA,
-                            error_message="Cloudflare CAPTCHA timeout",
-                            needs_retry=True,
-                        )
                 mat_selects = await self.page.locator("mat-select").all()
 
             if len(mat_selects) < 1:
@@ -911,17 +880,6 @@ class VFSNavigator:
 
             # Try each combination
             for i, (combo_name, center_text, subcategory_text) in enumerate(combinations):
-                # Check for Cloudflare between combinations
-                if await self._check_cloudflare_captcha():
-                    print("\n⚠️  Cloudflare appeared!")
-                    captcha_passed = await self.wait_for_cloudflare_to_pass()
-                    if not captcha_passed:
-                        return CheckResult(
-                            state=PageState.CAPTCHA,
-                            error_message="Cloudflare CAPTCHA timeout",
-                            needs_retry=True,
-                        )
-
                 print(f"\n{'-'*50}")
                 print(f"[{i+1}/{len(combinations)}] {combo_name}")
                 print(f"{'-'*50}")
@@ -937,8 +895,6 @@ class VFSNavigator:
                     print(f"  ❌ No slots")
                 elif result.state == PageState.ERROR:
                     print(f"  ⚠️ Error: {result.error_message}")
-                elif result.state == PageState.CAPTCHA:
-                    return result
 
                 # ANTI-DETECTION: Random delay between combinations (3-8 seconds)
                 if i < len(combinations) - 1:  # Don't delay after last one
