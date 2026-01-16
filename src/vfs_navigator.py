@@ -32,57 +32,77 @@ class HumanBehavior:
     """
     Simulates human-like behavior to avoid bot detection.
     All techniques based on real human interaction patterns.
+    All parameters are configurable via config.yaml
     """
 
-    def __init__(self, page: "Page"):
+    def __init__(self, page: "Page", config: "Config"):
         self.page = page
+        self.config = config
         self._last_action_time = datetime.now()
 
     # -------------------------------------------------------------------------
     # 1. GAUSSIAN JITTER - More realistic than uniform random
     # -------------------------------------------------------------------------
-    @staticmethod
-    def gaussian_delay(base: float, std_dev: float = 0.3) -> float:
+    def gaussian_delay(self, base: float) -> float:
         """
         Generate delay with gaussian distribution (more human-like).
         Most values cluster around base, occasionally slower/faster.
         """
+        if not self.config.hb_gaussian_enabled:
+            return base
+
+        std_dev = self.config.hb_gaussian_std_dev_ratio
         delay = random.gauss(base, base * std_dev)
         return max(0.1, delay)  # Never negative or too fast
 
-    @staticmethod
-    def gaussian_range(min_val: float, max_val: float) -> float:
+    def gaussian_range(self, min_val: float, max_val: float) -> float:
         """Gaussian distributed value between min and max."""
+        if not self.config.hb_gaussian_enabled:
+            return random.uniform(min_val, max_val)
+
         mean = (min_val + max_val) / 2
         std_dev = (max_val - min_val) / 4  # 95% within range
         value = random.gauss(mean, std_dev)
         return max(min_val, min(max_val, value))
 
+    def get_range(self, range_dict: Dict[str, float]) -> float:
+        """Get random value from a min/max dict, with gaussian if enabled."""
+        return self.gaussian_range(range_dict["min"], range_dict["max"])
+
     # -------------------------------------------------------------------------
     # 2. TIME-OF-DAY SPEED VARIATION
     # -------------------------------------------------------------------------
-    @staticmethod
-    def get_time_multiplier() -> float:
+    def get_time_multiplier(self) -> float:
         """
         People are faster in morning, slower in evening.
         Returns multiplier for delays (1.0 = normal).
         """
-        hour = datetime.now().hour
-
-        if 6 <= hour < 9:      # Early morning - still waking up
-            return 1.3
-        elif 9 <= hour < 12:   # Morning - most alert
-            return 0.8
-        elif 12 <= hour < 14:  # Lunch - slower
-            return 1.2
-        elif 14 <= hour < 17:  # Afternoon - normal
+        if not self.config.hb_time_of_day_enabled:
             return 1.0
-        elif 17 <= hour < 20:  # Evening - getting tired
-            return 1.2
-        elif 20 <= hour < 23:  # Night - tired
-            return 1.4
-        else:                   # Late night - very slow
-            return 1.6
+
+        now = datetime.now()
+        current_time = now.hour * 60 + now.minute  # Minutes since midnight
+
+        periods = self.config.hb_time_of_day_periods
+        for period_str, multiplier in periods.items():
+            try:
+                start_str, end_str = period_str.split("-")
+                start_h, start_m = map(int, start_str.split(":"))
+                end_h, end_m = map(int, end_str.split(":"))
+                start_mins = start_h * 60 + start_m
+                end_mins = end_h * 60 + end_m
+
+                # Handle overnight periods (e.g., 23:00-06:00)
+                if end_mins < start_mins:
+                    if current_time >= start_mins or current_time < end_mins:
+                        return multiplier
+                else:
+                    if start_mins <= current_time < end_mins:
+                        return multiplier
+            except:
+                continue
+
+        return 1.0  # Default
 
     async def human_delay(self, base_seconds: float) -> None:
         """Wait with human-like variation based on time of day."""
@@ -98,14 +118,18 @@ class HumanBehavior:
         Move mouse to element with human-like curve.
         Uses bezier curve, not straight line.
         """
+        if not self.config.hb_mouse_enabled:
+            return
+
         try:
             box = await element.bounding_box()
             if not box:
                 return
 
-            # Target point with slight randomness (don't always hit center)
-            target_x = box["x"] + box["width"] * random.uniform(0.3, 0.7)
-            target_y = box["y"] + box["height"] * random.uniform(0.3, 0.7)
+            # Target point with slight randomness (from config)
+            offset = self.config.hb_mouse_click_offset
+            target_x = box["x"] + box["width"] * random.uniform(offset["min"], offset["max"])
+            target_y = box["y"] + box["height"] * random.uniform(offset["min"], offset["max"])
 
             # Get current mouse position (approximate from viewport center)
             viewport = self.page.viewport_size
@@ -116,15 +140,19 @@ class HumanBehavior:
                 start_x, start_y = 500, 400
 
             # Generate bezier curve points
-            points = self._bezier_curve(start_x, start_y, target_x, target_y)
+            steps = self.config.hb_mouse_curve_points
+            points = self._bezier_curve(start_x, start_y, target_x, target_y, steps)
 
             # Move through points with varying speed
+            normal_delay = self.config.hb_mouse_move_delay_normal
+            target_delay = self.config.hb_mouse_move_delay_near_target
+
             for i, (x, y) in enumerate(points):
                 # Slow down near the end (like real mouse)
                 if i > len(points) * 0.7:
-                    delay = random.uniform(0.01, 0.03)
+                    delay = random.uniform(target_delay["min"], target_delay["max"])
                 else:
-                    delay = random.uniform(0.005, 0.015)
+                    delay = random.uniform(normal_delay["min"], normal_delay["max"])
 
                 await self.page.mouse.move(x, y)
                 await asyncio.sleep(delay)
@@ -157,33 +185,47 @@ class HumanBehavior:
     # -------------------------------------------------------------------------
     async def random_scroll(self) -> None:
         """Perform random scroll like human browsing."""
+        if not self.config.hb_scrolling_enabled:
+            return
+
         direction = random.choice(["up", "down", "none"])
 
         if direction == "none":
             return
 
-        scroll_amount = random.randint(50, 200)
+        amount_cfg = self.config.hb_scrolling_amount
+        scroll_amount = random.randint(amount_cfg["min"], amount_cfg["max"])
         if direction == "up":
             scroll_amount = -scroll_amount
 
         await self.page.mouse.wheel(0, scroll_amount)
-        await asyncio.sleep(self.gaussian_delay(0.3))
+
+        delay_cfg = self.config.hb_scrolling_delay_after
+        await asyncio.sleep(self.get_range(delay_cfg))
 
         # Sometimes scroll back a bit
-        if random.random() < 0.3:
+        if random.random() < self.config.hb_scrolling_back_probability:
             await self.page.mouse.wheel(0, -scroll_amount // 2)
-            await asyncio.sleep(self.gaussian_delay(0.2))
+            await asyncio.sleep(self.get_range(delay_cfg) * 0.7)
 
     async def scroll_element_into_view(self, element: "Locator") -> None:
         """Scroll to element with human-like behavior."""
+        if not self.config.hb_scrolling_enabled:
+            try:
+                await element.scroll_into_view_if_needed()
+            except:
+                pass
+            return
+
         try:
             # First a random small scroll
-            if random.random() < 0.4:
+            if random.random() < self.config.hb_scrolling_probability:
                 await self.random_scroll()
 
             # Then scroll to element
             await element.scroll_into_view_if_needed()
-            await asyncio.sleep(self.gaussian_delay(0.3))
+            delay_cfg = self.config.hb_scrolling_delay_after
+            await asyncio.sleep(self.get_range(delay_cfg))
 
         except Exception:
             pass
@@ -191,15 +233,31 @@ class HumanBehavior:
     # -------------------------------------------------------------------------
     # 5. HUMAN MISTAKES - Occasionally make "errors"
     # -------------------------------------------------------------------------
-    async def maybe_make_mistake(self, page: "Page", probability: float = 0.1) -> bool:
+    async def maybe_make_mistake(self, page: "Page") -> bool:
         """
         Sometimes humans misclick or open wrong thing.
         Returns True if mistake was made.
         """
-        if random.random() > probability:
+        if not self.config.hb_mistakes_enabled:
             return False
 
-        mistake_type = random.choice(["wrong_dropdown", "hover_wrong", "scroll_away"])
+        if random.random() > self.config.hb_mistakes_probability:
+            return False
+
+        # Choose mistake type based on weights from config
+        types = self.config.hb_mistakes_types
+        total_weight = sum(types.values())
+        r = random.uniform(0, total_weight)
+
+        cumulative = 0
+        mistake_type = "hover_wrong"  # default
+        for mtype, weight in types.items():
+            cumulative += weight
+            if r <= cumulative:
+                mistake_type = mtype
+                break
+
+        recovery_delay = self.config.hb_mistakes_recovery_delay
 
         try:
             if mistake_type == "wrong_dropdown":
@@ -208,9 +266,9 @@ class HumanBehavior:
                 if len(dropdowns) > 1:
                     wrong_dropdown = random.choice(dropdowns)
                     await wrong_dropdown.click()
-                    await asyncio.sleep(self.gaussian_delay(0.5))
+                    await asyncio.sleep(self.get_range(recovery_delay))
                     await page.keyboard.press("Escape")
-                    await asyncio.sleep(self.gaussian_delay(0.3))
+                    await asyncio.sleep(self.get_range(recovery_delay))
                     print("  [Human] Accidentally opened wrong dropdown, closing...")
                     return True
 
@@ -220,15 +278,16 @@ class HumanBehavior:
                 if buttons:
                     random_btn = random.choice(buttons)
                     await self.move_mouse_to_element(random_btn)
-                    await asyncio.sleep(self.gaussian_delay(0.3))
+                    await asyncio.sleep(self.get_range(recovery_delay))
                     return True
 
             elif mistake_type == "scroll_away":
                 # Scroll away and back
-                await self.page.mouse.wheel(0, random.randint(100, 300))
-                await asyncio.sleep(self.gaussian_delay(0.5))
-                await self.page.mouse.wheel(0, random.randint(-300, -100))
-                await asyncio.sleep(self.gaussian_delay(0.3))
+                amount_cfg = self.config.hb_scrolling_amount
+                await self.page.mouse.wheel(0, random.randint(amount_cfg["min"], amount_cfg["max"]))
+                await asyncio.sleep(self.get_range(recovery_delay) * 1.5)
+                await self.page.mouse.wheel(0, -random.randint(amount_cfg["min"], amount_cfg["max"]))
+                await asyncio.sleep(self.get_range(recovery_delay))
                 print("  [Human] Scrolled away and back...")
                 return True
 
@@ -240,22 +299,27 @@ class HumanBehavior:
     # -------------------------------------------------------------------------
     # 6. RANDOM LONG PAUSES - Coffee breaks, phone calls, etc
     # -------------------------------------------------------------------------
-    @staticmethod
-    def should_take_break(cycle_count: int) -> Tuple[bool, int]:
+    def should_take_break(self, cycle_count: int) -> Tuple[bool, int]:
         """
         Decide if should take a long break.
         Returns (should_break, break_duration_seconds).
         """
-        # Every 5-10 cycles, maybe take a break
-        if cycle_count > 0 and cycle_count % random.randint(5, 10) == 0:
-            if random.random() < 0.3:  # 30% chance
-                # Break duration: 5-15 minutes
-                duration = random.randint(300, 900)
+        if not self.config.hb_breaks_enabled:
+            return False, 0
+
+        check_cycles = self.config.hb_breaks_check_every_cycles
+
+        # Every N cycles, maybe take a break
+        if cycle_count > 0 and cycle_count % random.randint(check_cycles["min"], check_cycles["max"]) == 0:
+            if random.random() < self.config.hb_breaks_probability:
+                short_break = self.config.hb_breaks_short_break
+                duration = random.randint(short_break["min"], short_break["max"])
                 return True, duration
 
         # Very rare: long break (like went to lunch)
-        if random.random() < 0.02:  # 2% chance
-            duration = random.randint(600, 1200)  # 10-20 min
+        if random.random() < self.config.hb_breaks_long_probability:
+            long_break = self.config.hb_breaks_long_break
+            duration = random.randint(long_break["min"], long_break["max"])
             return True, duration
 
         return False, 0
@@ -265,13 +329,15 @@ class HumanBehavior:
         print(f"\n  ☕ {reason} ({duration // 60} min {duration % 60} sec)...")
         logger.info(f"Taking break: {duration}s - {reason}")
 
+        mouse_prob = self.config.hb_breaks_mouse_probability
+
         # During break, maybe move mouse occasionally
         chunks = duration // 30  # Check every 30 seconds
         for i in range(chunks):
             await asyncio.sleep(30)
 
             # Occasionally move mouse slightly (not AFK)
-            if random.random() < 0.2:
+            if random.random() < mouse_prob:
                 try:
                     viewport = self.page.viewport_size
                     if viewport:
@@ -296,31 +362,23 @@ class HumanBehavior:
         Check if we got blocked by VFS.
         Returns (is_blocked, reason).
         """
+        if not self.config.hb_block_detection_enabled:
+            return False, ""
+
         try:
             page_text = await page.content()
             page_lower = page_text.lower()
 
-            # Check for block indicators
-            block_indicators = [
-                ("access restricted", "Access Restricted"),
-                ("access denied", "Access Denied"),
-                ("blocked", "Blocked"),
-                ("unusual activity", "Unusual Activity Detected"),
-                ("too many requests", "Too Many Requests"),
-                ("rate limit", "Rate Limited"),
-                ("temporarily banned", "Temporarily Banned"),
-                ("your ip has been", "IP Blocked"),
-                ("user id (429", "User ID Blocked (429)"),
-            ]
+            # Check for block phrases from config
+            for phrase in self.config.hb_block_detection_phrases:
+                if phrase.lower() in page_lower:
+                    return True, phrase.title()
 
-            for indicator, reason in block_indicators:
-                if indicator in page_lower:
-                    return True, reason
-
-            # Check for error codes in URL
+            # Check for URL patterns from config
             url = page.url.lower()
-            if "error" in url or "blocked" in url or "denied" in url:
-                return True, "Error URL detected"
+            for pattern in self.config.hb_block_detection_url_patterns:
+                if pattern.lower() in url:
+                    return True, f"URL contains '{pattern}'"
 
             return False, ""
 
@@ -450,7 +508,7 @@ class VFSNavigator:
     def _get_human(self) -> HumanBehavior:
         """Get or create HumanBehavior instance."""
         if self._human is None:
-            self._human = HumanBehavior(self.page)
+            self._human = HumanBehavior(self.page, self.config)
         return self._human
 
     @property
@@ -816,14 +874,16 @@ class VFSNavigator:
             # HUMAN: Move mouse to dropdown with bezier curve
             await human.move_mouse_to_element(dropdown)
 
-            # HUMAN: Thinking delay (gaussian, time-of-day adjusted)
-            await human.human_delay(1.0)
+            # HUMAN: Thinking delay before click (from config)
+            before_click = self.config.hb_dropdown_before_click
+            await asyncio.sleep(human.get_range(before_click))
 
             # Click to open dropdown
             await dropdown.click()
 
-            # HUMAN: Wait while "reading" options (gaussian delay)
-            await asyncio.sleep(human.gaussian_delay(1.0))
+            # HUMAN: Wait while "reading" options (from config)
+            reading_options = self.config.hb_dropdown_reading_options
+            await asyncio.sleep(human.get_range(reading_options))
 
             # Wait for options panel to appear
             try:
@@ -834,8 +894,10 @@ class VFSNavigator:
 
             all_options = await self.page.locator("mat-option").all()
 
-            # HUMAN: "Reading" the options (time varies by number of options)
-            read_time = min(0.1 * len(all_options), 1.5)
+            # HUMAN: "Reading" the options (time varies by number of options, from config)
+            per_option = self.config.hb_dropdown_per_option_scan
+            max_scan = self.config.hb_dropdown_max_scan_time
+            read_time = min(per_option * len(all_options), max_scan)
             await asyncio.sleep(human.gaussian_delay(read_time))
 
             # Find and click the option containing our text
@@ -843,15 +905,16 @@ class VFSNavigator:
             if await option.count() > 0:
                 # HUMAN: Move mouse to option
                 await human.move_mouse_to_element(option)
-                await asyncio.sleep(human.gaussian_delay(0.2))
+                before_select = self.config.hb_dropdown_before_select
+                await asyncio.sleep(human.get_range(before_select))
 
                 await option.click()
                 print(f"  → Selected: {option_text}")
 
-                # Wait for loading after selection
+                # Wait for loading after selection (from config)
                 if wait_for_load:
-                    # HUMAN: Gaussian delay (2-4 seconds, time-adjusted)
-                    await human.human_delay(3.0)
+                    after_select = self.config.hb_dropdown_after_select
+                    await asyncio.sleep(human.get_range(after_select))
 
                     # Wait for any spinner to disappear
                     try:
@@ -1161,7 +1224,7 @@ class VFSNavigator:
             # =====================================================================
             # 2. MAYBE TAKE A BREAK (coffee, phone call, etc)
             # =====================================================================
-            should_break, break_duration = HumanBehavior.should_take_break(VFSNavigator._cycle_count)
+            should_break, break_duration = human.should_take_break(VFSNavigator._cycle_count)
             if should_break:
                 reasons = [
                     "Coffee break",
@@ -1191,18 +1254,23 @@ class VFSNavigator:
             print(f"\n[Cycle #{VFSNavigator._cycle_count + 1}, Step {step + 1}/3] {'(reverse)' if reverse else ''}")
 
             # =====================================================================
-            # 4. MAYBE MAKE A HUMAN MISTAKE (10% chance)
+            # 4. MAYBE MAKE A HUMAN MISTAKE
             # =====================================================================
-            await human.maybe_make_mistake(self.page, probability=0.10)
+            await human.maybe_make_mistake(self.page)
 
             # =====================================================================
             # 5. MAYBE DO RANDOM SCROLL (like browsing)
             # =====================================================================
-            if random.random() < 0.2:
+            if random.random() < self.config.hb_scrolling_probability:
                 await human.random_scroll()
 
             result = None
             pause_seconds = 0
+
+            # Get pause configs
+            same_city = self.config.hb_same_city_pause
+            before_city = self.config.hb_before_city_change_pause
+            end_cycle = self.config.hb_end_of_cycle_pause
 
             if not reverse:
                 # FORWARD ORDER: Moscow → Moscow PRIME → Nizhniy
@@ -1211,19 +1279,19 @@ class VFSNavigator:
                     result = await self._check_single_combination(
                         "Moscow", "Moscow", "All kind of other short stay visas"
                     )
-                    pause_seconds = HumanBehavior.gaussian_range(30, 60)
+                    pause_seconds = human.get_range(same_city)
 
                 elif step == 1:
                     print("  🔄 Moscow + PRIME TIME (only subcategory)")
                     result = await self._check_subcategory_only("Moscow PRIME", "PRIME TIME")
-                    pause_seconds = HumanBehavior.gaussian_range(120, 180)
+                    pause_seconds = human.get_range(before_city)
 
                 elif step == 2:
                     print("  🔄 Nizhniy Novgorod + All kind of other short stay visas")
                     result = await self._check_single_combination(
                         "Nizhniy Novgorod", "Nizhniy Novgorod", "All kind of other short stay visas"
                     )
-                    pause_seconds = HumanBehavior.gaussian_range(180, 300)
+                    pause_seconds = human.get_range(end_cycle)
             else:
                 # REVERSE ORDER: Nizhniy → Moscow → Moscow PRIME
                 if step == 0:
@@ -1231,19 +1299,19 @@ class VFSNavigator:
                     result = await self._check_single_combination(
                         "Nizhniy Novgorod", "Nizhniy Novgorod", "All kind of other short stay visas"
                     )
-                    pause_seconds = HumanBehavior.gaussian_range(30, 60)
+                    pause_seconds = human.get_range(same_city)
 
                 elif step == 1:
                     print("  🔄 Moscow + All kind of other short stay visas")
                     result = await self._check_single_combination(
                         "Moscow", "Moscow", "All kind of other short stay visas"
                     )
-                    pause_seconds = HumanBehavior.gaussian_range(30, 60)
+                    pause_seconds = human.get_range(same_city)
 
                 elif step == 2:
                     print("  🔄 Moscow + PRIME TIME (only subcategory)")
                     result = await self._check_subcategory_only("Moscow PRIME", "PRIME TIME")
-                    pause_seconds = HumanBehavior.gaussian_range(180, 300)
+                    pause_seconds = human.get_range(end_cycle)
 
             # =====================================================================
             # 6. CHECK FOR BLOCK AFTER ACTION (sometimes appears after interaction)
@@ -1285,7 +1353,7 @@ class VFSNavigator:
             # =====================================================================
             if pause_seconds > 0:
                 # Apply time-of-day multiplier
-                multiplier = HumanBehavior.get_time_multiplier()
+                multiplier = human.get_time_multiplier()
                 actual_pause = pause_seconds * multiplier
                 print(f"  ⏳ Waiting {int(actual_pause)}s...")
                 await asyncio.sleep(actual_pause)

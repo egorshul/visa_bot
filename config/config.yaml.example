@@ -179,3 +179,241 @@ retry:
 
   # Long pause duration (minutes)
   error_pause_duration: 15
+
+# =============================================================================
+# HUMAN BEHAVIOR SIMULATION - All timing and behavior settings
+# =============================================================================
+# These settings control how the bot mimics human behavior to avoid detection.
+# Values below are my recommended settings based on typical human patterns.
+
+human_behavior:
+  # -------------------------------------------------------------------------
+  # CYCLE TIMING - Pauses between checking different combinations
+  # -------------------------------------------------------------------------
+  cycle_timing:
+    # Pause after checking same-city subcategory (seconds)
+    # Example: After Moscow, before Moscow PRIME TIME
+    # Recommended: 30-60s (human would quickly check another option)
+    same_city_pause:
+      min: 30
+      max: 60
+
+    # Pause after checking PRIME TIME before switching city (seconds)
+    # Recommended: 120-180s (human takes a break before major action)
+    before_city_change_pause:
+      min: 120
+      max: 180
+
+    # Pause after completing full cycle (seconds)
+    # This is the longest pause - end of checking all combinations
+    # Recommended: 180-300s (3-5 minutes - human takes a real break)
+    end_of_cycle_pause:
+      min: 180
+      max: 300
+
+  # -------------------------------------------------------------------------
+  # DROPDOWN INTERACTION - Timing when selecting from dropdowns
+  # -------------------------------------------------------------------------
+  dropdown_timing:
+    # Delay before clicking dropdown (thinking time) (seconds)
+    # Recommended: 0.8-1.5s
+    before_click:
+      min: 0.8
+      max: 1.5
+
+    # Delay after dropdown opens (reading options) (seconds)
+    # Recommended: 0.8-1.5s
+    reading_options:
+      min: 0.8
+      max: 1.5
+
+    # Additional delay per option visible (human scans list) (seconds)
+    # Total = base + (per_option * num_options), capped at max
+    # Recommended: 0.1s per option, max 1.5s total
+    per_option_scan: 0.1
+    max_scan_time: 1.5
+
+    # Delay before clicking selected option (seconds)
+    # Recommended: 0.15-0.3s
+    before_select:
+      min: 0.15
+      max: 0.3
+
+    # Delay after selection (waiting for page update) (seconds)
+    # Recommended: 2.5-4.0s
+    after_select:
+      min: 2.5
+      max: 4.0
+
+  # -------------------------------------------------------------------------
+  # MOUSE MOVEMENT - Bezier curve parameters
+  # -------------------------------------------------------------------------
+  mouse:
+    # Enable mouse movements (disable for faster but more detectable)
+    enabled: true
+
+    # Number of points in bezier curve (more = smoother, slower)
+    # Recommended: 15-25
+    curve_points: 20
+
+    # Delay between mouse move steps (seconds)
+    # Recommended: 0.005-0.015 normal, 0.01-0.03 near target
+    move_delay:
+      normal:
+        min: 0.005
+        max: 0.015
+      near_target:  # Last 30% of movement
+        min: 0.01
+        max: 0.03
+
+    # Random offset from element center (ratio of element size)
+    # 0.3-0.7 means click within middle 40% of element
+    # Recommended: 0.3-0.7
+    click_offset:
+      min: 0.3
+      max: 0.7
+
+  # -------------------------------------------------------------------------
+  # SCROLLING - Random page scrolling behavior
+  # -------------------------------------------------------------------------
+  scrolling:
+    # Enable random scrolling
+    enabled: true
+
+    # Probability of scrolling before action (0.0-1.0)
+    # Recommended: 0.2 (20% chance)
+    probability: 0.2
+
+    # Scroll amount (pixels)
+    # Recommended: 50-200
+    amount:
+      min: 50
+      max: 200
+
+    # Probability of scrolling back after scrolling (0.0-1.0)
+    # Recommended: 0.3 (30% chance)
+    scroll_back_probability: 0.3
+
+    # Delay after scrolling (seconds)
+    # Recommended: 0.2-0.4s
+    delay_after:
+      min: 0.2
+      max: 0.4
+
+  # -------------------------------------------------------------------------
+  # HUMAN MISTAKES - Occasional "errors" to look more human
+  # -------------------------------------------------------------------------
+  mistakes:
+    # Enable human mistakes
+    enabled: true
+
+    # Probability of making a mistake per action (0.0-1.0)
+    # Recommended: 0.08-0.12 (8-12% chance)
+    probability: 0.10
+
+    # Types of mistakes and their weights (relative probability)
+    # Higher weight = more likely to be chosen when mistake happens
+    types:
+      wrong_dropdown: 3    # Open wrong dropdown and close
+      hover_wrong: 2       # Hover over random element
+      scroll_away: 1       # Scroll away and back
+
+    # Delay after making mistake (seconds)
+    # Recommended: 0.3-0.6s
+    recovery_delay:
+      min: 0.3
+      max: 0.6
+
+  # -------------------------------------------------------------------------
+  # BREAKS - Random long pauses (coffee, phone, etc)
+  # -------------------------------------------------------------------------
+  breaks:
+    # Enable random breaks
+    enabled: true
+
+    # Check for break every N cycles
+    # Recommended: 5-10 cycles
+    check_every_cycles:
+      min: 5
+      max: 10
+
+    # Probability of taking break when check triggers (0.0-1.0)
+    # Recommended: 0.25-0.35 (25-35% chance)
+    probability: 0.30
+
+    # Short break duration (seconds)
+    # Recommended: 300-900s (5-15 minutes)
+    short_break:
+      min: 300
+      max: 900
+
+    # Probability of random long break (checked every cycle) (0.0-1.0)
+    # Recommended: 0.01-0.03 (1-3% chance)
+    long_break_probability: 0.02
+
+    # Long break duration (seconds)
+    # Recommended: 600-1200s (10-20 minutes)
+    long_break:
+      min: 600
+      max: 1200
+
+    # Move mouse occasionally during break (0.0-1.0)
+    # Recommended: 0.15-0.25 (15-25% chance every 30s)
+    mouse_during_break_probability: 0.20
+
+  # -------------------------------------------------------------------------
+  # TIME OF DAY - Speed variation based on hour
+  # -------------------------------------------------------------------------
+  # Multiplier for all delays based on time of day
+  # <1.0 = faster, >1.0 = slower
+  # Simulates human energy levels throughout the day
+  time_of_day:
+    enabled: true
+    # Format: "HH:MM-HH:MM": multiplier
+    periods:
+      "06:00-09:00": 1.3   # Early morning - still waking up
+      "09:00-12:00": 0.8   # Morning - most alert and fast
+      "12:00-14:00": 1.2   # Lunch time - slower
+      "14:00-17:00": 1.0   # Afternoon - normal speed
+      "17:00-20:00": 1.2   # Evening - getting tired
+      "20:00-23:00": 1.4   # Night - tired
+      "23:00-06:00": 1.6   # Late night - very slow (if running)
+
+  # -------------------------------------------------------------------------
+  # GAUSSIAN DISTRIBUTION - Timing randomization
+  # -------------------------------------------------------------------------
+  # All delays use gaussian (normal) distribution instead of uniform
+  # This makes timing more realistic (values cluster around mean)
+  gaussian:
+    # Enable gaussian distribution (false = use uniform random)
+    enabled: true
+
+    # Standard deviation as ratio of mean (0.0-1.0)
+    # 0.3 means 95% of values within ±60% of mean
+    # Recommended: 0.25-0.35
+    std_dev_ratio: 0.30
+
+  # -------------------------------------------------------------------------
+  # BLOCK DETECTION - Stop if VFS blocks the user
+  # -------------------------------------------------------------------------
+  block_detection:
+    # Enable block detection
+    enabled: true
+
+    # Phrases to detect (case insensitive)
+    # If any phrase found, bot stops immediately
+    phrases:
+      - "access restricted"
+      - "access denied"
+      - "unusual activity"
+      - "too many requests"
+      - "rate limit"
+      - "temporarily banned"
+      - "blocked"
+      - "user id (429"
+
+    # Also check URL for these patterns
+    url_patterns:
+      - "error"
+      - "blocked"
+      - "denied"

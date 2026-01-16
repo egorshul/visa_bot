@@ -374,6 +374,234 @@ class Config:
             f"{self.destination_country}/login"
         )
 
+    # =========================================================================
+    # HUMAN BEHAVIOR SETTINGS
+    # =========================================================================
+
+    @property
+    def human_behavior(self) -> Dict[str, Any]:
+        """Get full human behavior configuration."""
+        return self.get("human_behavior", {})
+
+    # Cycle timing
+    @property
+    def hb_same_city_pause(self) -> Dict[str, float]:
+        """Pause after same-city subcategory check."""
+        return self.get("human_behavior.cycle_timing.same_city_pause", {"min": 30, "max": 60})
+
+    @property
+    def hb_before_city_change_pause(self) -> Dict[str, float]:
+        """Pause before switching city."""
+        return self.get("human_behavior.cycle_timing.before_city_change_pause", {"min": 120, "max": 180})
+
+    @property
+    def hb_end_of_cycle_pause(self) -> Dict[str, float]:
+        """Pause at end of full cycle."""
+        return self.get("human_behavior.cycle_timing.end_of_cycle_pause", {"min": 180, "max": 300})
+
+    # Dropdown timing
+    @property
+    def hb_dropdown_before_click(self) -> Dict[str, float]:
+        """Delay before clicking dropdown."""
+        return self.get("human_behavior.dropdown_timing.before_click", {"min": 0.8, "max": 1.5})
+
+    @property
+    def hb_dropdown_reading_options(self) -> Dict[str, float]:
+        """Delay reading dropdown options."""
+        return self.get("human_behavior.dropdown_timing.reading_options", {"min": 0.8, "max": 1.5})
+
+    @property
+    def hb_dropdown_per_option_scan(self) -> float:
+        """Additional delay per option."""
+        return self.get("human_behavior.dropdown_timing.per_option_scan", 0.1)
+
+    @property
+    def hb_dropdown_max_scan_time(self) -> float:
+        """Max scan time for options."""
+        return self.get("human_behavior.dropdown_timing.max_scan_time", 1.5)
+
+    @property
+    def hb_dropdown_before_select(self) -> Dict[str, float]:
+        """Delay before selecting option."""
+        return self.get("human_behavior.dropdown_timing.before_select", {"min": 0.15, "max": 0.3})
+
+    @property
+    def hb_dropdown_after_select(self) -> Dict[str, float]:
+        """Delay after selection."""
+        return self.get("human_behavior.dropdown_timing.after_select", {"min": 2.5, "max": 4.0})
+
+    # Mouse settings
+    @property
+    def hb_mouse_enabled(self) -> bool:
+        """Check if mouse movements enabled."""
+        return self.get("human_behavior.mouse.enabled", True)
+
+    @property
+    def hb_mouse_curve_points(self) -> int:
+        """Number of bezier curve points."""
+        return self.get("human_behavior.mouse.curve_points", 20)
+
+    @property
+    def hb_mouse_move_delay_normal(self) -> Dict[str, float]:
+        """Normal mouse move delay."""
+        return self.get("human_behavior.mouse.move_delay.normal", {"min": 0.005, "max": 0.015})
+
+    @property
+    def hb_mouse_move_delay_near_target(self) -> Dict[str, float]:
+        """Mouse move delay near target."""
+        return self.get("human_behavior.mouse.move_delay.near_target", {"min": 0.01, "max": 0.03})
+
+    @property
+    def hb_mouse_click_offset(self) -> Dict[str, float]:
+        """Click offset from center."""
+        return self.get("human_behavior.mouse.click_offset", {"min": 0.3, "max": 0.7})
+
+    # Scrolling settings
+    @property
+    def hb_scrolling_enabled(self) -> bool:
+        """Check if scrolling enabled."""
+        return self.get("human_behavior.scrolling.enabled", True)
+
+    @property
+    def hb_scrolling_probability(self) -> float:
+        """Probability of random scroll."""
+        return self.get("human_behavior.scrolling.probability", 0.2)
+
+    @property
+    def hb_scrolling_amount(self) -> Dict[str, int]:
+        """Scroll amount range."""
+        return self.get("human_behavior.scrolling.amount", {"min": 50, "max": 200})
+
+    @property
+    def hb_scrolling_back_probability(self) -> float:
+        """Probability of scrolling back."""
+        return self.get("human_behavior.scrolling.scroll_back_probability", 0.3)
+
+    @property
+    def hb_scrolling_delay_after(self) -> Dict[str, float]:
+        """Delay after scrolling."""
+        return self.get("human_behavior.scrolling.delay_after", {"min": 0.2, "max": 0.4})
+
+    # Mistakes settings
+    @property
+    def hb_mistakes_enabled(self) -> bool:
+        """Check if mistakes enabled."""
+        return self.get("human_behavior.mistakes.enabled", True)
+
+    @property
+    def hb_mistakes_probability(self) -> float:
+        """Probability of making a mistake."""
+        return self.get("human_behavior.mistakes.probability", 0.10)
+
+    @property
+    def hb_mistakes_types(self) -> Dict[str, int]:
+        """Mistake types and weights."""
+        return self.get("human_behavior.mistakes.types", {
+            "wrong_dropdown": 3,
+            "hover_wrong": 2,
+            "scroll_away": 1
+        })
+
+    @property
+    def hb_mistakes_recovery_delay(self) -> Dict[str, float]:
+        """Delay after mistake."""
+        return self.get("human_behavior.mistakes.recovery_delay", {"min": 0.3, "max": 0.6})
+
+    # Breaks settings
+    @property
+    def hb_breaks_enabled(self) -> bool:
+        """Check if breaks enabled."""
+        return self.get("human_behavior.breaks.enabled", True)
+
+    @property
+    def hb_breaks_check_every_cycles(self) -> Dict[str, int]:
+        """Check for break every N cycles."""
+        return self.get("human_behavior.breaks.check_every_cycles", {"min": 5, "max": 10})
+
+    @property
+    def hb_breaks_probability(self) -> float:
+        """Probability of taking break."""
+        return self.get("human_behavior.breaks.probability", 0.30)
+
+    @property
+    def hb_breaks_short_break(self) -> Dict[str, int]:
+        """Short break duration range."""
+        return self.get("human_behavior.breaks.short_break", {"min": 300, "max": 900})
+
+    @property
+    def hb_breaks_long_probability(self) -> float:
+        """Probability of long break."""
+        return self.get("human_behavior.breaks.long_break_probability", 0.02)
+
+    @property
+    def hb_breaks_long_break(self) -> Dict[str, int]:
+        """Long break duration range."""
+        return self.get("human_behavior.breaks.long_break", {"min": 600, "max": 1200})
+
+    @property
+    def hb_breaks_mouse_probability(self) -> float:
+        """Probability of mouse movement during break."""
+        return self.get("human_behavior.breaks.mouse_during_break_probability", 0.20)
+
+    # Time of day settings
+    @property
+    def hb_time_of_day_enabled(self) -> bool:
+        """Check if time-of-day variation enabled."""
+        return self.get("human_behavior.time_of_day.enabled", True)
+
+    @property
+    def hb_time_of_day_periods(self) -> Dict[str, float]:
+        """Time periods and multipliers."""
+        return self.get("human_behavior.time_of_day.periods", {
+            "06:00-09:00": 1.3,
+            "09:00-12:00": 0.8,
+            "12:00-14:00": 1.2,
+            "14:00-17:00": 1.0,
+            "17:00-20:00": 1.2,
+            "20:00-23:00": 1.4,
+            "23:00-06:00": 1.6,
+        })
+
+    # Gaussian settings
+    @property
+    def hb_gaussian_enabled(self) -> bool:
+        """Check if gaussian distribution enabled."""
+        return self.get("human_behavior.gaussian.enabled", True)
+
+    @property
+    def hb_gaussian_std_dev_ratio(self) -> float:
+        """Gaussian standard deviation ratio."""
+        return self.get("human_behavior.gaussian.std_dev_ratio", 0.30)
+
+    # Block detection settings
+    @property
+    def hb_block_detection_enabled(self) -> bool:
+        """Check if block detection enabled."""
+        return self.get("human_behavior.block_detection.enabled", True)
+
+    @property
+    def hb_block_detection_phrases(self) -> List[str]:
+        """Phrases to detect as blocked."""
+        return self.get("human_behavior.block_detection.phrases", [
+            "access restricted",
+            "access denied",
+            "unusual activity",
+            "too many requests",
+            "rate limit",
+            "temporarily banned",
+            "blocked",
+            "user id (429"
+        ])
+
+    @property
+    def hb_block_detection_url_patterns(self) -> List[str]:
+        """URL patterns to detect as blocked."""
+        return self.get("human_behavior.block_detection.url_patterns", [
+            "error",
+            "blocked",
+            "denied"
+        ])
+
     def validate(self) -> List[str]:
         """
         Validate configuration.
