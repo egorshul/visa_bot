@@ -5,6 +5,7 @@ Handles login, navigation, and slot availability checking.
 """
 
 import asyncio
+import math
 import random
 import re
 from dataclasses import dataclass, field
@@ -21,6 +22,310 @@ from .utils.config import Config
 from .utils.logger import BotLogger
 
 logger = BotLogger("VFS")
+
+
+# =============================================================================
+# HUMAN BEHAVIOR SIMULATION - Anti-detection techniques
+# =============================================================================
+
+class HumanBehavior:
+    """
+    Simulates human-like behavior to avoid bot detection.
+    All techniques based on real human interaction patterns.
+    """
+
+    def __init__(self, page: "Page"):
+        self.page = page
+        self._last_action_time = datetime.now()
+
+    # -------------------------------------------------------------------------
+    # 1. GAUSSIAN JITTER - More realistic than uniform random
+    # -------------------------------------------------------------------------
+    @staticmethod
+    def gaussian_delay(base: float, std_dev: float = 0.3) -> float:
+        """
+        Generate delay with gaussian distribution (more human-like).
+        Most values cluster around base, occasionally slower/faster.
+        """
+        delay = random.gauss(base, base * std_dev)
+        return max(0.1, delay)  # Never negative or too fast
+
+    @staticmethod
+    def gaussian_range(min_val: float, max_val: float) -> float:
+        """Gaussian distributed value between min and max."""
+        mean = (min_val + max_val) / 2
+        std_dev = (max_val - min_val) / 4  # 95% within range
+        value = random.gauss(mean, std_dev)
+        return max(min_val, min(max_val, value))
+
+    # -------------------------------------------------------------------------
+    # 2. TIME-OF-DAY SPEED VARIATION
+    # -------------------------------------------------------------------------
+    @staticmethod
+    def get_time_multiplier() -> float:
+        """
+        People are faster in morning, slower in evening.
+        Returns multiplier for delays (1.0 = normal).
+        """
+        hour = datetime.now().hour
+
+        if 6 <= hour < 9:      # Early morning - still waking up
+            return 1.3
+        elif 9 <= hour < 12:   # Morning - most alert
+            return 0.8
+        elif 12 <= hour < 14:  # Lunch - slower
+            return 1.2
+        elif 14 <= hour < 17:  # Afternoon - normal
+            return 1.0
+        elif 17 <= hour < 20:  # Evening - getting tired
+            return 1.2
+        elif 20 <= hour < 23:  # Night - tired
+            return 1.4
+        else:                   # Late night - very slow
+            return 1.6
+
+    async def human_delay(self, base_seconds: float) -> None:
+        """Wait with human-like variation based on time of day."""
+        multiplier = self.get_time_multiplier()
+        actual_delay = self.gaussian_delay(base_seconds * multiplier)
+        await asyncio.sleep(actual_delay)
+
+    # -------------------------------------------------------------------------
+    # 3. MOUSE MOVEMENTS - Bezier curves like real mouse
+    # -------------------------------------------------------------------------
+    async def move_mouse_to_element(self, element: "Locator") -> None:
+        """
+        Move mouse to element with human-like curve.
+        Uses bezier curve, not straight line.
+        """
+        try:
+            box = await element.bounding_box()
+            if not box:
+                return
+
+            # Target point with slight randomness (don't always hit center)
+            target_x = box["x"] + box["width"] * random.uniform(0.3, 0.7)
+            target_y = box["y"] + box["height"] * random.uniform(0.3, 0.7)
+
+            # Get current mouse position (approximate from viewport center)
+            viewport = self.page.viewport_size
+            if viewport:
+                start_x = viewport["width"] / 2
+                start_y = viewport["height"] / 2
+            else:
+                start_x, start_y = 500, 400
+
+            # Generate bezier curve points
+            points = self._bezier_curve(start_x, start_y, target_x, target_y)
+
+            # Move through points with varying speed
+            for i, (x, y) in enumerate(points):
+                # Slow down near the end (like real mouse)
+                if i > len(points) * 0.7:
+                    delay = random.uniform(0.01, 0.03)
+                else:
+                    delay = random.uniform(0.005, 0.015)
+
+                await self.page.mouse.move(x, y)
+                await asyncio.sleep(delay)
+
+        except Exception as e:
+            # Silently fail - mouse movement is optional
+            pass
+
+    def _bezier_curve(self, x1: float, y1: float, x2: float, y2: float, steps: int = 20) -> list:
+        """Generate points along a bezier curve between two points."""
+        points = []
+
+        # Random control points for natural curve
+        ctrl1_x = x1 + (x2 - x1) * random.uniform(0.2, 0.4) + random.uniform(-50, 50)
+        ctrl1_y = y1 + (y2 - y1) * random.uniform(0.2, 0.4) + random.uniform(-50, 50)
+        ctrl2_x = x1 + (x2 - x1) * random.uniform(0.6, 0.8) + random.uniform(-30, 30)
+        ctrl2_y = y1 + (y2 - y1) * random.uniform(0.6, 0.8) + random.uniform(-30, 30)
+
+        for i in range(steps + 1):
+            t = i / steps
+            # Cubic bezier formula
+            x = (1-t)**3 * x1 + 3*(1-t)**2*t * ctrl1_x + 3*(1-t)*t**2 * ctrl2_x + t**3 * x2
+            y = (1-t)**3 * y1 + 3*(1-t)**2*t * ctrl1_y + 3*(1-t)*t**2 * ctrl2_y + t**3 * y2
+            points.append((x, y))
+
+        return points
+
+    # -------------------------------------------------------------------------
+    # 4. RANDOM SCROLLING - People scroll around
+    # -------------------------------------------------------------------------
+    async def random_scroll(self) -> None:
+        """Perform random scroll like human browsing."""
+        direction = random.choice(["up", "down", "none"])
+
+        if direction == "none":
+            return
+
+        scroll_amount = random.randint(50, 200)
+        if direction == "up":
+            scroll_amount = -scroll_amount
+
+        await self.page.mouse.wheel(0, scroll_amount)
+        await asyncio.sleep(self.gaussian_delay(0.3))
+
+        # Sometimes scroll back a bit
+        if random.random() < 0.3:
+            await self.page.mouse.wheel(0, -scroll_amount // 2)
+            await asyncio.sleep(self.gaussian_delay(0.2))
+
+    async def scroll_element_into_view(self, element: "Locator") -> None:
+        """Scroll to element with human-like behavior."""
+        try:
+            # First a random small scroll
+            if random.random() < 0.4:
+                await self.random_scroll()
+
+            # Then scroll to element
+            await element.scroll_into_view_if_needed()
+            await asyncio.sleep(self.gaussian_delay(0.3))
+
+        except Exception:
+            pass
+
+    # -------------------------------------------------------------------------
+    # 5. HUMAN MISTAKES - Occasionally make "errors"
+    # -------------------------------------------------------------------------
+    async def maybe_make_mistake(self, page: "Page", probability: float = 0.1) -> bool:
+        """
+        Sometimes humans misclick or open wrong thing.
+        Returns True if mistake was made.
+        """
+        if random.random() > probability:
+            return False
+
+        mistake_type = random.choice(["wrong_dropdown", "hover_wrong", "scroll_away"])
+
+        try:
+            if mistake_type == "wrong_dropdown":
+                # Click a dropdown and immediately close it
+                dropdowns = await page.locator("mat-select").all()
+                if len(dropdowns) > 1:
+                    wrong_dropdown = random.choice(dropdowns)
+                    await wrong_dropdown.click()
+                    await asyncio.sleep(self.gaussian_delay(0.5))
+                    await page.keyboard.press("Escape")
+                    await asyncio.sleep(self.gaussian_delay(0.3))
+                    print("  [Human] Accidentally opened wrong dropdown, closing...")
+                    return True
+
+            elif mistake_type == "hover_wrong":
+                # Hover over some random element
+                buttons = await page.locator("button").all()
+                if buttons:
+                    random_btn = random.choice(buttons)
+                    await self.move_mouse_to_element(random_btn)
+                    await asyncio.sleep(self.gaussian_delay(0.3))
+                    return True
+
+            elif mistake_type == "scroll_away":
+                # Scroll away and back
+                await self.page.mouse.wheel(0, random.randint(100, 300))
+                await asyncio.sleep(self.gaussian_delay(0.5))
+                await self.page.mouse.wheel(0, random.randint(-300, -100))
+                await asyncio.sleep(self.gaussian_delay(0.3))
+                print("  [Human] Scrolled away and back...")
+                return True
+
+        except Exception:
+            pass
+
+        return False
+
+    # -------------------------------------------------------------------------
+    # 6. RANDOM LONG PAUSES - Coffee breaks, phone calls, etc
+    # -------------------------------------------------------------------------
+    @staticmethod
+    def should_take_break(cycle_count: int) -> Tuple[bool, int]:
+        """
+        Decide if should take a long break.
+        Returns (should_break, break_duration_seconds).
+        """
+        # Every 5-10 cycles, maybe take a break
+        if cycle_count > 0 and cycle_count % random.randint(5, 10) == 0:
+            if random.random() < 0.3:  # 30% chance
+                # Break duration: 5-15 minutes
+                duration = random.randint(300, 900)
+                return True, duration
+
+        # Very rare: long break (like went to lunch)
+        if random.random() < 0.02:  # 2% chance
+            duration = random.randint(600, 1200)  # 10-20 min
+            return True, duration
+
+        return False, 0
+
+    async def take_break(self, duration: int, reason: str = "Taking a break") -> None:
+        """Take a human-like break."""
+        print(f"\n  ☕ {reason} ({duration // 60} min {duration % 60} sec)...")
+        logger.info(f"Taking break: {duration}s - {reason}")
+
+        # During break, maybe move mouse occasionally
+        chunks = duration // 30  # Check every 30 seconds
+        for i in range(chunks):
+            await asyncio.sleep(30)
+
+            # Occasionally move mouse slightly (not AFK)
+            if random.random() < 0.2:
+                try:
+                    viewport = self.page.viewport_size
+                    if viewport:
+                        x = viewport["width"] / 2 + random.randint(-100, 100)
+                        y = viewport["height"] / 2 + random.randint(-100, 100)
+                        await self.page.mouse.move(x, y)
+                except Exception:
+                    pass
+
+        # Remaining time
+        remaining = duration % 30
+        if remaining > 0:
+            await asyncio.sleep(remaining)
+
+        print(f"  ☕ Break finished, resuming...")
+
+    # -------------------------------------------------------------------------
+    # 7. BLOCK DETECTION - Stop if detected
+    # -------------------------------------------------------------------------
+    async def check_if_blocked(self, page: "Page") -> Tuple[bool, str]:
+        """
+        Check if we got blocked by VFS.
+        Returns (is_blocked, reason).
+        """
+        try:
+            page_text = await page.content()
+            page_lower = page_text.lower()
+
+            # Check for block indicators
+            block_indicators = [
+                ("access restricted", "Access Restricted"),
+                ("access denied", "Access Denied"),
+                ("blocked", "Blocked"),
+                ("unusual activity", "Unusual Activity Detected"),
+                ("too many requests", "Too Many Requests"),
+                ("rate limit", "Rate Limited"),
+                ("temporarily banned", "Temporarily Banned"),
+                ("your ip has been", "IP Blocked"),
+                ("user id (429", "User ID Blocked (429)"),
+            ]
+
+            for indicator, reason in block_indicators:
+                if indicator in page_lower:
+                    return True, reason
+
+            # Check for error codes in URL
+            url = page.url.lower()
+            if "error" in url or "blocked" in url or "denied" in url:
+                return True, "Error URL detected"
+
+            return False, ""
+
+        except Exception as e:
+            return False, ""
 
 
 class PageState(Enum):
@@ -138,6 +443,15 @@ class VFSNavigator:
         self.captcha_solver = captcha_solver
         self._logged_in = False
         self._current_state = PageState.UNKNOWN
+        self._human: Optional[HumanBehavior] = None  # Lazy init after page ready
+        self._is_blocked = False
+        self._block_reason = ""
+
+    def _get_human(self) -> HumanBehavior:
+        """Get or create HumanBehavior instance."""
+        if self._human is None:
+            self._human = HumanBehavior(self.page)
+        return self._human
 
     @property
     def page(self) -> "Page":
@@ -468,6 +782,7 @@ class VFSNavigator:
     async def _select_dropdown_by_index(self, index: int, option_text: str, wait_for_load: bool = True) -> bool:
         """
         Select an option from mat-select dropdown by its index on the page.
+        Uses human-like behavior for all interactions.
 
         Args:
             index: Index of the mat-select (0 = first, 1 = second, etc.)
@@ -477,64 +792,67 @@ class VFSNavigator:
         Returns:
             True if option selected successfully
         """
+        human = self._get_human()
+
         try:
             # Wait for dropdowns to be present
-            print(f"  DEBUG: Looking for mat-select[{index}]...")
-
-            # Wait up to 10 seconds for enough dropdowns to appear
             for attempt in range(20):
                 mat_selects = await self.page.locator("mat-select").all()
                 if len(mat_selects) > index:
                     break
-                print(f"  DEBUG: Found {len(mat_selects)} dropdowns, waiting for index {index}...")
                 await asyncio.sleep(0.5)
 
             mat_selects = await self.page.locator("mat-select").all()
-            print(f"  DEBUG: Total mat-selects on page: {len(mat_selects)}")
 
             if index >= len(mat_selects):
-                print(f"  DEBUG: mat-select[{index}] not found! Only {len(mat_selects)} dropdowns exist.")
+                print(f"  [!] Dropdown {index} not found (only {len(mat_selects)} exist)")
                 return False
 
             dropdown = mat_selects[index]
 
-            # Get current value
-            current_text = await dropdown.text_content()
-            print(f"  DEBUG: mat-select[{index}] current value: '{current_text[:50] if current_text else 'empty'}'")
-            print(f"  DEBUG: mat-select[{index}] selecting: '{option_text}'")
+            # HUMAN: Maybe scroll to see the dropdown
+            await human.scroll_element_into_view(dropdown)
 
-            # ANTI-DETECTION: Random delay before clicking (like human thinking)
-            await asyncio.sleep(random.uniform(0.5, 1.5))
+            # HUMAN: Move mouse to dropdown with bezier curve
+            await human.move_mouse_to_element(dropdown)
+
+            # HUMAN: Thinking delay (gaussian, time-of-day adjusted)
+            await human.human_delay(1.0)
 
             # Click to open dropdown
             await dropdown.click()
-            await asyncio.sleep(random.uniform(0.8, 1.5))  # Random delay
+
+            # HUMAN: Wait while "reading" options (gaussian delay)
+            await asyncio.sleep(human.gaussian_delay(1.0))
 
             # Wait for options panel to appear
             try:
                 await self.page.wait_for_selector("mat-option", timeout=5000)
             except:
-                print(f"  DEBUG: mat-select[{index}] No mat-option appeared after click")
+                print(f"  [!] No options appeared for dropdown {index}")
                 return False
 
-            # List all available options (but don't print all to reduce log noise)
             all_options = await self.page.locator("mat-option").all()
-            print(f"  DEBUG: mat-select[{index}] has {len(all_options)} options")
 
-            # ANTI-DETECTION: Small random delay before selecting (human reads options)
-            await asyncio.sleep(random.uniform(0.3, 0.8))
+            # HUMAN: "Reading" the options (time varies by number of options)
+            read_time = min(0.1 * len(all_options), 1.5)
+            await asyncio.sleep(human.gaussian_delay(read_time))
 
             # Find and click the option containing our text
             option = self.page.locator(f"mat-option:has-text('{option_text}')").first
             if await option.count() > 0:
+                # HUMAN: Move mouse to option
+                await human.move_mouse_to_element(option)
+                await asyncio.sleep(human.gaussian_delay(0.2))
+
                 await option.click()
-                print(f"  DEBUG: mat-select[{index}] -> {option_text}")
+                print(f"  → Selected: {option_text}")
 
                 # Wait for loading after selection
                 if wait_for_load:
-                    # ANTI-DETECTION: Random delay (2-4 seconds)
-                    delay = random.uniform(2, 4)
-                    await asyncio.sleep(delay)
+                    # HUMAN: Gaussian delay (2-4 seconds, time-adjusted)
+                    await human.human_delay(3.0)
+
                     # Wait for any spinner to disappear
                     try:
                         spinner = self.page.locator("mat-spinner, .loading, .spinner")
@@ -545,7 +863,7 @@ class VFSNavigator:
 
                 return True
 
-            print(f"  DEBUG: mat-select[{index}] Option '{option_text}' not found!")
+            print(f"  [!] Option '{option_text}' not found in dropdown {index}")
 
             # Close dropdown by pressing Escape
             await self.page.keyboard.press("Escape")
@@ -803,23 +1121,61 @@ class VFSNavigator:
 
     async def check_all_combinations(self) -> CheckResult:
         """
-        OPTIMIZED STRATEGY - Minimal clicks, grouped by city:
+        OPTIMIZED STRATEGY with full human behavior simulation:
+
+        Features:
+        - Block detection (stops if "Access Restricted" detected)
+        - Random long pauses (coffee breaks)
+        - Human mistakes (occasional wrong clicks)
+        - Gaussian timing (not uniform random)
+        - Time-of-day speed variation
+        - Mouse movements before clicks
 
         Cycle (forward):
           Step 0: Moscow (3 dropdowns) + "All kind of..." → check → PAUSE 30-60s
           Step 1: (only subcategory) → PRIME TIME → check → PAUSE 2-3 min
           Step 2: Nizhniy Novgorod (3 dropdowns) + "All kind of..." → check → PAUSE 3-5 min
 
-        Cycle (reverse) - alternates for unpredictability:
-          Step 0: Nizhniy Novgorod → check → PAUSE 30-60s
-          Step 1: Moscow (3 dropdowns) + "All kind of..." → check → PAUSE 30-60s
-          Step 2: (only subcategory) → PRIME TIME → check → PAUSE 3-5 min
-
-        Total: 7 clicks per cycle (not 9), all 3 combinations checked.
+        Cycle (reverse) - alternates for unpredictability.
         """
         start_time = datetime.now()
+        human = self._get_human()
 
         try:
+            # =====================================================================
+            # 1. CHECK IF BLOCKED
+            # =====================================================================
+            is_blocked, block_reason = await human.check_if_blocked(self.page)
+            if is_blocked:
+                self._is_blocked = True
+                self._block_reason = block_reason
+                print(f"\n  🚫 BLOCKED: {block_reason}")
+                print("  ⛔ Stopping bot to avoid further detection...")
+                logger.error(f"Blocked by VFS: {block_reason}")
+                return CheckResult(
+                    state=PageState.BLOCKED,
+                    error_message=f"Blocked: {block_reason}",
+                    needs_retry=False,
+                )
+
+            # =====================================================================
+            # 2. MAYBE TAKE A BREAK (coffee, phone call, etc)
+            # =====================================================================
+            should_break, break_duration = HumanBehavior.should_take_break(VFSNavigator._cycle_count)
+            if should_break:
+                reasons = [
+                    "Coffee break",
+                    "Phone call",
+                    "Stretching",
+                    "Quick snack",
+                    "Checking phone",
+                    "Bio break",
+                ]
+                await human.take_break(break_duration, random.choice(reasons))
+
+            # =====================================================================
+            # 3. CHECK URL
+            # =====================================================================
             current_url = self.page.url
             if "application" not in current_url:
                 print("  ⚠️ Not on application page!")
@@ -834,57 +1190,79 @@ class VFSNavigator:
 
             print(f"\n[Cycle #{VFSNavigator._cycle_count + 1}, Step {step + 1}/3] {'(reverse)' if reverse else ''}")
 
+            # =====================================================================
+            # 4. MAYBE MAKE A HUMAN MISTAKE (10% chance)
+            # =====================================================================
+            await human.maybe_make_mistake(self.page, probability=0.10)
+
+            # =====================================================================
+            # 5. MAYBE DO RANDOM SCROLL (like browsing)
+            # =====================================================================
+            if random.random() < 0.2:
+                await human.random_scroll()
+
             result = None
             pause_seconds = 0
 
             if not reverse:
                 # FORWARD ORDER: Moscow → Moscow PRIME → Nizhniy
                 if step == 0:
-                    # Moscow + All kind of... (3 dropdowns)
                     print("  🔄 Moscow + All kind of other short stay visas")
                     result = await self._check_single_combination(
                         "Moscow", "Moscow", "All kind of other short stay visas"
                     )
-                    pause_seconds = random.uniform(30, 60)
+                    pause_seconds = HumanBehavior.gaussian_range(30, 60)
 
                 elif step == 1:
-                    # Moscow PRIME (only subcategory change - 1 dropdown!)
                     print("  🔄 Moscow + PRIME TIME (only subcategory)")
                     result = await self._check_subcategory_only("Moscow PRIME", "PRIME TIME")
-                    pause_seconds = random.uniform(120, 180)  # 2-3 min
+                    pause_seconds = HumanBehavior.gaussian_range(120, 180)
 
                 elif step == 2:
-                    # Nizhniy Novgorod (3 dropdowns - city change resets all)
                     print("  🔄 Nizhniy Novgorod + All kind of other short stay visas")
                     result = await self._check_single_combination(
                         "Nizhniy Novgorod", "Nizhniy Novgorod", "All kind of other short stay visas"
                     )
-                    pause_seconds = random.uniform(180, 300)  # 3-5 min (end of cycle)
+                    pause_seconds = HumanBehavior.gaussian_range(180, 300)
             else:
                 # REVERSE ORDER: Nizhniy → Moscow → Moscow PRIME
                 if step == 0:
-                    # Nizhniy Novgorod (3 dropdowns)
                     print("  🔄 Nizhniy Novgorod + All kind of other short stay visas")
                     result = await self._check_single_combination(
                         "Nizhniy Novgorod", "Nizhniy Novgorod", "All kind of other short stay visas"
                     )
-                    pause_seconds = random.uniform(30, 60)
+                    pause_seconds = HumanBehavior.gaussian_range(30, 60)
 
                 elif step == 1:
-                    # Moscow + All kind of... (3 dropdowns - city change)
                     print("  🔄 Moscow + All kind of other short stay visas")
                     result = await self._check_single_combination(
                         "Moscow", "Moscow", "All kind of other short stay visas"
                     )
-                    pause_seconds = random.uniform(30, 60)
+                    pause_seconds = HumanBehavior.gaussian_range(30, 60)
 
                 elif step == 2:
-                    # Moscow PRIME (only subcategory - 1 dropdown!)
                     print("  🔄 Moscow + PRIME TIME (only subcategory)")
                     result = await self._check_subcategory_only("Moscow PRIME", "PRIME TIME")
-                    pause_seconds = random.uniform(180, 300)  # 3-5 min (end of cycle)
+                    pause_seconds = HumanBehavior.gaussian_range(180, 300)
 
-            # Process result
+            # =====================================================================
+            # 6. CHECK FOR BLOCK AFTER ACTION (sometimes appears after interaction)
+            # =====================================================================
+            is_blocked, block_reason = await human.check_if_blocked(self.page)
+            if is_blocked:
+                self._is_blocked = True
+                self._block_reason = block_reason
+                print(f"\n  🚫 BLOCKED AFTER ACTION: {block_reason}")
+                logger.error(f"Blocked by VFS after action: {block_reason}")
+                return CheckResult(
+                    state=PageState.BLOCKED,
+                    error_message=f"Blocked: {block_reason}",
+                    needs_retry=False,
+                )
+
+            # =====================================================================
+            # 7. PROCESS RESULT
+            # =====================================================================
             if result and result.state == PageState.SLOT_SELECTION and result.slots:
                 print(f"  🎉 SLOTS FOUND!")
                 return result
@@ -893,18 +1271,24 @@ class VFSNavigator:
             elif result and result.state == PageState.ERROR:
                 print(f"  ⚠️ Error: {result.error_message}")
 
-            # Move to next step
+            # =====================================================================
+            # 8. MOVE TO NEXT STEP
+            # =====================================================================
             VFSNavigator._step_in_cycle = (step + 1) % 3
             if VFSNavigator._step_in_cycle == 0:
-                # Completed cycle - alternate direction
                 VFSNavigator._cycle_count += 1
                 VFSNavigator._reverse_order = not VFSNavigator._reverse_order
-                print(f"\n  ✅ Cycle complete. Next cycle will be {'reverse' if VFSNavigator._reverse_order else 'forward'}.")
+                print(f"\n  ✅ Cycle complete. Next: {'reverse' if VFSNavigator._reverse_order else 'forward'}")
 
-            # Wait before returning (bot.py will add its own interval on top)
+            # =====================================================================
+            # 9. WAIT WITH HUMAN-LIKE TIMING (time-of-day adjusted)
+            # =====================================================================
             if pause_seconds > 0:
-                print(f"  ⏳ Waiting {int(pause_seconds)}s before next step...")
-                await asyncio.sleep(pause_seconds)
+                # Apply time-of-day multiplier
+                multiplier = HumanBehavior.get_time_multiplier()
+                actual_pause = pause_seconds * multiplier
+                print(f"  ⏳ Waiting {int(actual_pause)}s...")
+                await asyncio.sleep(actual_pause)
 
             duration = (datetime.now() - start_time).total_seconds()
             logger.check_completed(duration)

@@ -202,6 +202,19 @@ class VisaSlotBot:
                 logger.info("No slots found for any combination")
                 self._consecutive_errors = 0
 
+            elif result.state == PageState.BLOCKED:
+                # BLOCKED by VFS - stop bot immediately
+                logger.error(f"BLOCKED by VFS: {result.error_message}")
+                if self._telegram:
+                    await self._telegram.notify_error(
+                        "🚫 BLOCKED by VFS!",
+                        f"Reason: {result.error_message}\n\nBot stopped to avoid further detection. "
+                        "Wait several hours before trying again with a new session.",
+                    )
+                # Stop the bot
+                self._shutdown_requested = True
+                self._running = False
+
             elif result.state == PageState.CAPTCHA:
                 logger.warning("CAPTCHA detected")
                 if self._telegram:
