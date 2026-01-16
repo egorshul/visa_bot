@@ -799,15 +799,15 @@ class VFSNavigator:
     # Track state for checking
     _check_count = 0
     _current_combo_index = 0
-    _last_refresh_check = 0
-    _REFRESH_INTERVAL = 5  # Refresh page every N checks (~2-3 minutes with 30s intervals)
+    _last_reselect_check = 0
+    _RESELECT_INTERVAL = 15  # Re-select dropdowns every N checks (~5-7 min with 20-30s intervals)
 
     async def check_all_combinations(self) -> CheckResult:
         """
         Strategy to avoid detection while still finding slots:
-        1. Refresh page every ~2-3 minutes (5 checks)
-        2. After refresh, re-select dropdowns for current combination
-        3. Then rotate to next combination
+        1. Passive checks most of the time (just read page, no clicks)
+        2. Every ~5-7 minutes, re-select dropdowns for NEXT combination
+        3. NO page.reload() - keeps session alive
         4. Human-like delays between actions
 
         Returns:
@@ -826,9 +826,9 @@ class VFSNavigator:
         try:
             current_url = self.page.url
             combo_name = all_combinations[VFSNavigator._current_combo_index][0]
-            checks_since_refresh = VFSNavigator._check_count - VFSNavigator._last_refresh_check
+            checks_since_reselect = VFSNavigator._check_count - VFSNavigator._last_reselect_check
 
-            print(f"\n[#{VFSNavigator._check_count}] {combo_name} | Next refresh in {VFSNavigator._REFRESH_INTERVAL - checks_since_refresh} checks")
+            print(f"\n[#{VFSNavigator._check_count}] {combo_name} | Next reselect in {VFSNavigator._RESELECT_INTERVAL - checks_since_reselect} checks")
 
             if "application" not in current_url:
                 print("  ⚠️ Not on application page!")
@@ -838,25 +838,21 @@ class VFSNavigator:
                     needs_retry=False,
                 )
 
-            # Time to refresh and re-check?
-            need_refresh = (
-                VFSNavigator._last_refresh_check == 0 or  # First run
-                checks_since_refresh >= VFSNavigator._REFRESH_INTERVAL
+            # Time to re-select dropdowns for new combination?
+            need_reselect = (
+                VFSNavigator._last_reselect_check == 0 or  # First run
+                checks_since_reselect >= VFSNavigator._RESELECT_INTERVAL
             )
 
-            if need_refresh:
-                # Refresh page to get fresh data
-                print("  🔄 Refreshing page...")
-                await self.page.reload(wait_until="domcontentloaded")
-                await asyncio.sleep(random.uniform(2, 4))  # Wait for page to load
-
-                VFSNavigator._last_refresh_check = VFSNavigator._check_count
+            if need_reselect:
+                # NO RELOAD! Just re-select dropdowns for next combination
+                VFSNavigator._last_reselect_check = VFSNavigator._check_count
 
                 # Move to next combination
                 VFSNavigator._current_combo_index = (VFSNavigator._current_combo_index + 1) % len(all_combinations)
                 combo_name, center_text, subcategory_text = all_combinations[VFSNavigator._current_combo_index]
 
-                print(f"  Selecting: {combo_name}")
+                print(f"  🔄 Re-selecting dropdowns: {combo_name}")
                 result = await self._check_single_combination(combo_name, center_text, subcategory_text)
 
                 if result.state == PageState.SLOT_SELECTION and result.slots:
@@ -867,13 +863,13 @@ class VFSNavigator:
                 elif result.state == PageState.ERROR:
                     print(f"  ⚠️ Error: {result.error_message}")
             else:
-                # Just do a quick passive check (page might have auto-updated via JS)
+                # Passive check - just read page state (no interactions)
                 result = await self._passive_check(combo_name)
                 if result.state == PageState.SLOT_SELECTION and result.slots:
                     print(f"  🎉 SLOTS FOUND!")
                     return result
                 else:
-                    print(f"  ❌ No slots (passive check)")
+                    print(f"  ❌ No slots (passive)")
 
             duration = (datetime.now() - start_time).total_seconds()
             logger.check_completed(duration)
