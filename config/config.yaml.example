@@ -40,9 +40,9 @@ account:
 # Checking schedule
 schedule:
   # Interval between checks in seconds
-  # PASSIVE MODE: Bot just reads page without clicking, so can check more often
-  min_interval: 20  # 20 seconds
-  max_interval: 40  # 40 seconds
+  # Note: Pauses are built into the check cycle, this is additional wait
+  min_interval: 5  # 5 seconds (cycle has its own pauses)
+  max_interval: 15  # 15 seconds
 
   # Use random intervals between min and max
   randomize: true

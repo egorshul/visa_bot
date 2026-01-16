@@ -796,40 +796,31 @@ class VFSNavigator:
             logger.exception("Failed to click continue", e)
             return False
 
-    # Track state for checking
-    _check_count = 0
-    _current_combo_index = 0
-    _last_reselect_check = 0
-    _RESELECT_INTERVAL = 15  # Re-select dropdowns every N checks (~5-7 min with 20-30s intervals)
+    # Track state for optimized checking
+    _cycle_count = 0
+    _step_in_cycle = 0  # 0-4 steps per cycle
+    _reverse_order = False  # Alternate direction for less predictable pattern
 
     async def check_all_combinations(self) -> CheckResult:
         """
-        Strategy to avoid detection while still finding slots:
-        1. Passive checks most of the time (just read page, no clicks)
-        2. Every ~5-7 minutes, re-select dropdowns for NEXT combination
-        3. NO page.reload() - keeps session alive
-        4. Human-like delays between actions
+        OPTIMIZED STRATEGY - Minimal clicks, grouped by city:
 
-        Returns:
-            CheckResult with slot information (if found)
+        Cycle (forward):
+          Step 0: Moscow (3 dropdowns) + "All kind of..." → check → PAUSE 30-60s
+          Step 1: (only subcategory) → PRIME TIME → check → PAUSE 2-3 min
+          Step 2: Nizhniy Novgorod (3 dropdowns) + "All kind of..." → check → PAUSE 3-5 min
+
+        Cycle (reverse) - alternates for unpredictability:
+          Step 0: Nizhniy Novgorod → check → PAUSE 30-60s
+          Step 1: Moscow (3 dropdowns) + "All kind of..." → check → PAUSE 30-60s
+          Step 2: (only subcategory) → PRIME TIME → check → PAUSE 3-5 min
+
+        Total: 7 clicks per cycle (not 9), all 3 combinations checked.
         """
-        VFSNavigator._check_count += 1
         start_time = datetime.now()
-
-        # All combinations to rotate through
-        all_combinations = [
-            ("Moscow", "Moscow", "All kind of other short stay visas"),
-            ("Moscow PRIME", "Moscow", "PRIME TIME"),
-            ("Nizhniy Novgorod", "Nizhniy Novgorod", "All kind of other short stay visas"),
-        ]
 
         try:
             current_url = self.page.url
-            combo_name = all_combinations[VFSNavigator._current_combo_index][0]
-            checks_since_reselect = VFSNavigator._check_count - VFSNavigator._last_reselect_check
-
-            print(f"\n[#{VFSNavigator._check_count}] {combo_name} | Next reselect in {VFSNavigator._RESELECT_INTERVAL - checks_since_reselect} checks")
-
             if "application" not in current_url:
                 print("  ⚠️ Not on application page!")
                 return CheckResult(
@@ -838,38 +829,82 @@ class VFSNavigator:
                     needs_retry=False,
                 )
 
-            # Time to re-select dropdowns for new combination?
-            need_reselect = (
-                VFSNavigator._last_reselect_check == 0 or  # First run
-                checks_since_reselect >= VFSNavigator._RESELECT_INTERVAL
-            )
+            step = VFSNavigator._step_in_cycle
+            reverse = VFSNavigator._reverse_order
 
-            if need_reselect:
-                # NO RELOAD! Just re-select dropdowns for next combination
-                VFSNavigator._last_reselect_check = VFSNavigator._check_count
+            print(f"\n[Cycle #{VFSNavigator._cycle_count + 1}, Step {step + 1}/3] {'(reverse)' if reverse else ''}")
 
-                # Move to next combination
-                VFSNavigator._current_combo_index = (VFSNavigator._current_combo_index + 1) % len(all_combinations)
-                combo_name, center_text, subcategory_text = all_combinations[VFSNavigator._current_combo_index]
+            result = None
+            pause_seconds = 0
 
-                print(f"  🔄 Re-selecting dropdowns: {combo_name}")
-                result = await self._check_single_combination(combo_name, center_text, subcategory_text)
+            if not reverse:
+                # FORWARD ORDER: Moscow → Moscow PRIME → Nizhniy
+                if step == 0:
+                    # Moscow + All kind of... (3 dropdowns)
+                    print("  🔄 Moscow + All kind of other short stay visas")
+                    result = await self._check_single_combination(
+                        "Moscow", "Moscow", "All kind of other short stay visas"
+                    )
+                    pause_seconds = random.uniform(30, 60)
 
-                if result.state == PageState.SLOT_SELECTION and result.slots:
-                    print(f"  🎉 SLOTS FOUND!")
-                    return result
-                elif result.state == PageState.NO_SLOTS:
-                    print(f"  ❌ No slots for {combo_name}")
-                elif result.state == PageState.ERROR:
-                    print(f"  ⚠️ Error: {result.error_message}")
+                elif step == 1:
+                    # Moscow PRIME (only subcategory change - 1 dropdown!)
+                    print("  🔄 Moscow + PRIME TIME (only subcategory)")
+                    result = await self._check_subcategory_only("Moscow PRIME", "PRIME TIME")
+                    pause_seconds = random.uniform(120, 180)  # 2-3 min
+
+                elif step == 2:
+                    # Nizhniy Novgorod (3 dropdowns - city change resets all)
+                    print("  🔄 Nizhniy Novgorod + All kind of other short stay visas")
+                    result = await self._check_single_combination(
+                        "Nizhniy Novgorod", "Nizhniy Novgorod", "All kind of other short stay visas"
+                    )
+                    pause_seconds = random.uniform(180, 300)  # 3-5 min (end of cycle)
             else:
-                # Passive check - just read page state (no interactions)
-                result = await self._passive_check(combo_name)
-                if result.state == PageState.SLOT_SELECTION and result.slots:
-                    print(f"  🎉 SLOTS FOUND!")
-                    return result
-                else:
-                    print(f"  ❌ No slots (passive)")
+                # REVERSE ORDER: Nizhniy → Moscow → Moscow PRIME
+                if step == 0:
+                    # Nizhniy Novgorod (3 dropdowns)
+                    print("  🔄 Nizhniy Novgorod + All kind of other short stay visas")
+                    result = await self._check_single_combination(
+                        "Nizhniy Novgorod", "Nizhniy Novgorod", "All kind of other short stay visas"
+                    )
+                    pause_seconds = random.uniform(30, 60)
+
+                elif step == 1:
+                    # Moscow + All kind of... (3 dropdowns - city change)
+                    print("  🔄 Moscow + All kind of other short stay visas")
+                    result = await self._check_single_combination(
+                        "Moscow", "Moscow", "All kind of other short stay visas"
+                    )
+                    pause_seconds = random.uniform(30, 60)
+
+                elif step == 2:
+                    # Moscow PRIME (only subcategory - 1 dropdown!)
+                    print("  🔄 Moscow + PRIME TIME (only subcategory)")
+                    result = await self._check_subcategory_only("Moscow PRIME", "PRIME TIME")
+                    pause_seconds = random.uniform(180, 300)  # 3-5 min (end of cycle)
+
+            # Process result
+            if result and result.state == PageState.SLOT_SELECTION and result.slots:
+                print(f"  🎉 SLOTS FOUND!")
+                return result
+            elif result and result.state == PageState.NO_SLOTS:
+                print(f"  ❌ No slots")
+            elif result and result.state == PageState.ERROR:
+                print(f"  ⚠️ Error: {result.error_message}")
+
+            # Move to next step
+            VFSNavigator._step_in_cycle = (step + 1) % 3
+            if VFSNavigator._step_in_cycle == 0:
+                # Completed cycle - alternate direction
+                VFSNavigator._cycle_count += 1
+                VFSNavigator._reverse_order = not VFSNavigator._reverse_order
+                print(f"\n  ✅ Cycle complete. Next cycle will be {'reverse' if VFSNavigator._reverse_order else 'forward'}.")
+
+            # Wait before returning (bot.py will add its own interval on top)
+            if pause_seconds > 0:
+                print(f"  ⏳ Waiting {int(pause_seconds)}s before next step...")
+                await asyncio.sleep(pause_seconds)
 
             duration = (datetime.now() - start_time).total_seconds()
             logger.check_completed(duration)
@@ -914,6 +949,41 @@ class VFSNavigator:
 
         except Exception as e:
             return CheckResult(state=PageState.ERROR, error_message=str(e))
+
+    async def _check_subcategory_only(self, combo_name: str, subcategory_text: str) -> CheckResult:
+        """
+        Change ONLY the subcategory dropdown (index 2) - minimal interaction.
+        Used when staying on same city to check different visa type.
+
+        Args:
+            combo_name: Display name for logging
+            subcategory_text: Text to match in subcategory dropdown
+
+        Returns:
+            CheckResult with slot information
+        """
+        try:
+            print(f"  Changing only subcategory to '{subcategory_text}'...")
+
+            # Only click subcategory dropdown (index 2)
+            subcategory_selected = await self._select_dropdown_by_index(2, subcategory_text)
+            if not subcategory_selected:
+                return CheckResult(
+                    state=PageState.ERROR,
+                    error_message=f"Could not select subcategory: {subcategory_text}",
+                )
+
+            # Check result
+            result = await self._check_slot_availability(combo_name)
+            return result
+
+        except Exception as e:
+            print(f"  ERROR: {e}")
+            return CheckResult(
+                state=PageState.ERROR,
+                error_message=str(e),
+                needs_retry=True,
+            )
 
     async def _check_single_combination(
         self, combo_name: str, center_text: str, subcategory_text: str
