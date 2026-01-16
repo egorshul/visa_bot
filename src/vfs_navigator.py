@@ -796,21 +796,19 @@ class VFSNavigator:
             logger.exception("Failed to click continue", e)
             return False
 
-    # Track state for passive monitoring
+    # Track state for checking
     _check_count = 0
     _current_combo_index = 0
-    _combo_selected_at_check = 0  # When was current combo selected
-    _COMBO_CHANGE_INTERVAL = 20  # Change combo every N checks (about 10-20 minutes)
+    _last_refresh_check = 0
+    _REFRESH_INTERVAL = 5  # Refresh page every N checks (~2-3 minutes with 30s intervals)
 
     async def check_all_combinations(self) -> CheckResult:
         """
-        PASSIVE MONITORING MODE - Avoids detection by NOT constantly re-selecting dropdowns.
-
-        Strategy:
-        1. Select ONE combination and keep it
-        2. Just monitor the page for changes (no slots message / Continue button)
-        3. Change combination only every 10-20 minutes
-        4. No page refreshes - user does that manually if needed
+        Strategy to avoid detection while still finding slots:
+        1. Refresh page every ~2-3 minutes (5 checks)
+        2. After refresh, re-select dropdowns for current combination
+        3. Then rotate to next combination
+        4. Human-like delays between actions
 
         Returns:
             CheckResult with slot information (if found)
@@ -818,7 +816,7 @@ class VFSNavigator:
         VFSNavigator._check_count += 1
         start_time = datetime.now()
 
-        # All combinations
+        # All combinations to rotate through
         all_combinations = [
             ("Moscow", "Moscow", "All kind of other short stay visas"),
             ("Moscow PRIME", "Moscow", "PRIME TIME"),
@@ -827,11 +825,10 @@ class VFSNavigator:
 
         try:
             current_url = self.page.url
-
-            # Simple status line
             combo_name = all_combinations[VFSNavigator._current_combo_index][0]
-            checks_until_change = VFSNavigator._COMBO_CHANGE_INTERVAL - (VFSNavigator._check_count - VFSNavigator._combo_selected_at_check)
-            print(f"\n[#{VFSNavigator._check_count}] Monitoring: {combo_name} (change in {checks_until_change} checks)")
+            checks_since_refresh = VFSNavigator._check_count - VFSNavigator._last_refresh_check
+
+            print(f"\n[#{VFSNavigator._check_count}] {combo_name} | Next refresh in {VFSNavigator._REFRESH_INTERVAL - checks_since_refresh} checks")
 
             if "application" not in current_url:
                 print("  ⚠️ Not on application page!")
@@ -841,45 +838,42 @@ class VFSNavigator:
                     needs_retry=False,
                 )
 
-            # Check if we need to select/change combination
-            need_to_select = False
+            # Time to refresh and re-check?
+            need_refresh = (
+                VFSNavigator._last_refresh_check == 0 or  # First run
+                checks_since_refresh >= VFSNavigator._REFRESH_INTERVAL
+            )
 
-            # First check - need to select
-            if VFSNavigator._combo_selected_at_check == 0:
-                need_to_select = True
-                print("  First run - selecting combination...")
+            if need_refresh:
+                # Refresh page to get fresh data
+                print("  🔄 Refreshing page...")
+                await self.page.reload(wait_until="domcontentloaded")
+                await asyncio.sleep(random.uniform(2, 4))  # Wait for page to load
 
-            # Time to change combination
-            elif (VFSNavigator._check_count - VFSNavigator._combo_selected_at_check) >= VFSNavigator._COMBO_CHANGE_INTERVAL:
+                VFSNavigator._last_refresh_check = VFSNavigator._check_count
+
+                # Move to next combination
                 VFSNavigator._current_combo_index = (VFSNavigator._current_combo_index + 1) % len(all_combinations)
-                need_to_select = True
-                print(f"  Changing to next combination...")
-
-            if need_to_select:
                 combo_name, center_text, subcategory_text = all_combinations[VFSNavigator._current_combo_index]
-                print(f"  Selecting: {combo_name}")
 
+                print(f"  Selecting: {combo_name}")
                 result = await self._check_single_combination(combo_name, center_text, subcategory_text)
-                VFSNavigator._combo_selected_at_check = VFSNavigator._check_count
 
                 if result.state == PageState.SLOT_SELECTION and result.slots:
                     print(f"  🎉 SLOTS FOUND!")
                     return result
                 elif result.state == PageState.NO_SLOTS:
-                    print(f"  ❌ No slots")
+                    print(f"  ❌ No slots for {combo_name}")
                 elif result.state == PageState.ERROR:
                     print(f"  ⚠️ Error: {result.error_message}")
-                    return result
             else:
-                # PASSIVE CHECK - just look at page state without clicking anything
-                combo_name = all_combinations[VFSNavigator._current_combo_index][0]
+                # Just do a quick passive check (page might have auto-updated via JS)
                 result = await self._passive_check(combo_name)
-
                 if result.state == PageState.SLOT_SELECTION and result.slots:
                     print(f"  🎉 SLOTS FOUND!")
                     return result
-                elif result.state == PageState.NO_SLOTS:
-                    print(f"  ❌ No slots")
+                else:
+                    print(f"  ❌ No slots (passive check)")
 
             duration = (datetime.now() - start_time).total_seconds()
             logger.check_completed(duration)
@@ -895,38 +889,27 @@ class VFSNavigator:
 
     async def _passive_check(self, combo_name: str) -> CheckResult:
         """
-        Passive check - just read page state without any clicks.
-        This is undetectable as it doesn't interact with the page.
+        Quick passive check - just read current page state.
+        In case VFS auto-updates via JavaScript.
         """
         try:
-            # Just read page content
             page_text = await self.page.content()
             page_text_lower = page_text.lower()
 
             # Check for "no slots" message
-            no_slots_texts = [
-                "no appointment slots are currently available",
-                "no slots available",
-                "currently not available",
-            ]
-
-            for text in no_slots_texts:
-                if text.lower() in page_text_lower:
-                    return CheckResult(state=PageState.NO_SLOTS)
+            if "no appointment slots are currently available" in page_text_lower:
+                return CheckResult(state=PageState.NO_SLOTS)
 
             # Check for active Continue button
             continue_button = self.page.locator("button:has-text('Continue')").first
             if await continue_button.count() > 0:
                 is_disabled = await continue_button.get_attribute("disabled")
-                is_aria_disabled = await continue_button.get_attribute("aria-disabled")
-                button_class = await continue_button.get_attribute("class") or ""
-
-                if is_disabled is None and is_aria_disabled != "true" and "disabled" not in button_class:
+                if is_disabled is None:
                     logger.slot_found(combo_name, "Available", "Check website")
                     slot = SlotInfo(
                         center=combo_name,
                         date="Available - check website",
-                        time_slots=["Continue button is active"],
+                        time_slots=["Continue button active"],
                         booking_url=self.page.url,
                     )
                     return CheckResult(state=PageState.SLOT_SELECTION, slots=[slot])
